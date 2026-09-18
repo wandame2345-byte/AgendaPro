@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgendaPro • Salão de Beleza</title>
+<!-- Bibliotecas para geração e download de relatórios em PDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+:root{--bg:#fdf6f4;--card:#fff;--text:#4a3037;--muted:#9c8288;--primary:#d98a9c;--primary2:#c06a80;--border:#f0dcdb;--success:#6f9668;--danger:#c9536a;--warning:#c99457;--sbar-bg:#f8ebe6;--sbar-text:#8a6469;--sbar-active-bg:#f3c9d1;--sbar-active-text:#6b2c3c;--sbar-border:#eccfc7}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text)}
+button,input,select,textarea{font:inherit}button{cursor:pointer;border:0}
+.app{display:flex;min-height:100vh}.sidebar{width:245px;background:var(--sbar-bg);color:var(--sbar-text);padding:24px 16px;position:fixed;top:0;bottom:0;border-right:1px solid var(--sbar-border)}
+.logo{font-size:21px;font-weight:800;padding:8px 12px 20px;color:var(--text)}.logo span{color:var(--primary2)}
+.btn-help{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px 12px;background:#25d366;color:#fff;font-weight:700;font-size:13px;border-radius:10px;text-decoration:none;margin-bottom:16px;box-shadow:0 2px 6px #25d36633;transition:background .2s}
+.btn-help:hover{background:#1ebe57}
+.nav button{display:block;width:100%;text-align:left;background:transparent;color:var(--sbar-text);padding:13px 14px;border-radius:10px;margin:4px 0}.nav button:hover,.nav button.active{background:var(--sbar-active-bg);color:var(--sbar-active-text)}
+.main{margin-left:245px;width:calc(100% - 245px);padding:26px;max-width:1500px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}.top h1{margin:0;font-size:27px}.subtitle{color:var(--muted);margin-top:5px}.btn{padding:11px 16px;border-radius:9px;font-weight:700}.primary{background:var(--primary);color:#fff}.primary:hover{background:var(--primary2)}.secondary{background:#f6e6e2;color:#7a4a52}.danger{background:var(--danger);color:#fff}.success{background:var(--success);color:#fff}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:19px;box-shadow:0 2px 10px #17132108}.card .label{color:var(--muted);font-size:13px}.card .value{font-size:26px;font-weight:800;margin-top:8px}.card .small{font-size:12px;color:var(--muted);margin-top:6px}
+.grid{display:grid;grid-template-columns:1.45fr .9fr;gap:20px}.panel{background:#fff;border:1px solid var(--border);border-radius:14px;padding:20px}.panel h2{font-size:17px;margin:0 0 16px}
+.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:650px}th,td{text-align:left;padding:13px 10px;border-bottom:1px solid var(--border);font-size:14px}th{color:var(--muted);font-size:12px;text-transform:uppercase}.badge{display:inline-block;padding:5px 8px;border-radius:20px;font-size:11px;font-weight:700}.b-agendado{background:#f7e3ea;color:#a84666}.b-confirmado{background:#eaf5e7;color:#4b7d52}.b-atendido{background:#f5ece0;color:#8a6a3f}.b-cancelado{background:#fbe3e6;color:#b23b52}
+.calendar-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px}.date-nav{display:flex;gap:7px;align-items:center}.date-nav button{background:#f6e6e2;padding:7px 10px;border-radius:8px}.slots{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.slot{padding:13px;border:1px solid var(--border);border-radius:10px;background:#fafafa}.slot strong{display:block}.slot.free{border-color:#dfe9da;background:#f7faf4;color:#4b7d52}.slot.busy{background:#faeef0;border-color:#f0d3d8}.slot small{display:block;color:var(--muted);margin-top:5px}
+.modal{position:fixed;inset:0;background:#0006;display:none;align-items:center;justify-content:center;padding:20px;z-index:10}.modal.show{display:flex}.modal-box{background:#fff;width:min(650px,100%);max-height:90vh;overflow:auto;border-radius:16px;padding:24px}.modal-head{display:flex;justify-content:space-between;align-items:center}.modal-head h2{margin:0}.close{background:#f6e6e2;color:#7a4a52;border-radius:8px;padding:7px 11px}.form{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px}.field{display:flex;flex-direction:column;gap:6px}.field.full{grid-column:1/-1}.field label{font-size:13px;font-weight:700}.field input,.field select,.field textarea{padding:11px;border:1px solid #ecd7d5;border-radius:9px;outline:none}.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--primary)}textarea{min-height:80px;resize:vertical}.form-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:18px}
+.section{display:none}.section.active{display:block}.empty{text-align:center;color:var(--muted);padding:35px}.report-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.bar{height:12px;background:#eee;border-radius:20px;overflow:hidden}.bar i{display:block;height:100%;background:var(--primary);border-radius:20px}.filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:15px}.filters input,.filters select{padding:10px;border:1px solid var(--border);border-radius:9px;background:#fff}
+.photo-preview{width:140px;height:140px;object-fit:cover;border-radius:12px;border:1px solid var(--border);margin-top:8px}
+.client-photo{width:52px;height:52px;object-fit:cover;border-radius:10px;vertical-align:middle;margin-right:8px}
+.cards.cols-3{grid-template-columns:repeat(3,1fr)}
+.sidebar{display:flex;flex-direction:column;justify-content:space-between}
+.sidebarFooter{padding-top:14px;border-top:1px solid var(--sbar-border)}
+.userTag{color:var(--sbar-text);font-size:13px;padding:8px 14px;font-weight:700}
+.navLogout{display:block;width:100%;text-align:left;background:transparent;color:#a8394f;padding:12px 14px;border-radius:10px;font-weight:700}
+.navLogout:hover{background:#f6d3d9}
+.authWrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#fbe6e2,#f2c4cd);padding:20px;z-index:5}
+.authBox{background:#fff;border-radius:18px;padding:32px;width:min(420px,100%);box-shadow:0 20px 60px #7a4a5225}
+.authLogo{font-size:24px;font-weight:800;text-align:center;margin-bottom:6px;color:var(--text)}.authLogo span{color:var(--primary2)}
+.authSub{color:var(--muted);text-align:center;margin-bottom:20px}
+.roleBtn{display:block;width:100%;text-align:left;padding:16px;border:1px solid var(--border);border-radius:12px;margin-bottom:12px;background:#fdf6f4;font-weight:700;font-size:15px;color:var(--text)}
+.roleBtn:hover{border-color:var(--primary);background:#fbeaee}
+.roleBtn .roleDesc{display:block;font-weight:400;font-size:12.5px;color:var(--muted);margin-top:3px}
+.loginForm .field{margin-bottom:14px}
+.loginError{color:var(--danger);font-size:13px;min-height:18px}
+.clientPage{min-height:100vh;background:var(--bg);padding:24px}
+.clientWrap{max-width:640px;margin:0 auto}
+.clientHeader{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.clientCard{background:#fff;border-radius:16px;padding:28px;box-shadow:0 2px 10px #17132108;text-align:left}
+.clientCard h1{margin:0 0 6px}
+.successIcon{font-size:48px;text-align:center;margin-bottom:10px}
+#clientSuccess{text-align:center}
+.slot{cursor:pointer;transition:all .15s}
+.slot.busy{cursor:not-allowed;opacity:.55}
+.slot.selected{outline:2px solid var(--primary);background:#f1e9ff}
+.btn-sm{padding:5px 9px;font-size:12px;border-radius:6px;margin:2px 0;display:inline-block;text-decoration:none}
+@media(max-width:950px){.sidebar{width:75px;padding:15px 8px}.logo{font-size:0;text-align:center}.logo:first-letter{font-size:22px}.btn-help{font-size:0;padding:10px 0;justify-content:center}.btn-help:before{content:"💬";font-size:16px}.nav button{font-size:0;text-align:center}.nav button:first-letter{font-size:19px}.main{margin-left:75px;width:calc(100% - 75px)}.cards{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.userTag{font-size:0;padding:8px 4px;text-align:center}.userTag:first-letter{font-size:15px}.navLogout{font-size:0;text-align:center}.navLogout:first-letter{font-size:16px}}
+@media(max-width:600px){.main{padding:15px}.top{align-items:flex-start;gap:10px}.top h1{font-size:22px}.cards{grid-template-columns:1fr 1fr}.form{grid-template-columns:1fr}.field.full{grid-column:auto}.report-grid{grid-template-columns:1fr}.slots{grid-template-columns:repeat(2,1fr)}}
+
+.report-downloads{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:600px){.report-downloads{justify-content:flex-start}.report-downloads .btn{width:100%}}
+</style>
+</head>
+<body>
+
+<div class="authWrap" id="authScreen">
+  <div class="authBox">
+    <div class="authLogo">✂️ Agenda<span>Pro</span></div>
+    <div id="roleSelect">
+      <p class="authSub">Como você quer entrar?</p>
+      <button type="button" class="roleBtn" onclick="selectRole('admin')">👑 Administrador<span class="roleDesc">Acesso completo ao sistema</span></button>
+      <button type="button" class="roleBtn" onclick="selectRole('funcionario')">👤 Funcionário<span class="roleDesc">Agenda, clientes e atendimentos</span></button>
+      <button type="button" class="roleBtn" onclick="selectRole('cliente')">📱 Sou cliente<span class="roleDesc">Marcar meu horário</span></button>
+    </div>
+    <form id="loginForm" class="loginForm" style="display:none">
+      <p class="authSub" id="loginRoleLabel"></p>
+      <div class="field"><label>Senha de acesso</label><input type="password" id="loginPassword" required placeholder="Digite a senha"></div>
+      <div class="loginError" id="loginError"></div>
+      <div class="form-actions"><button type="button" class="btn secondary" onclick="backToRoles()">Voltar</button><button class="btn primary">Entrar</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="app" id="app" style="display:none">
+<aside class="sidebar">
+  <div>
+    <div class="logo">✂️ Agenda<span>Pro</span></div>
+    <a href="https://wa.me/5585991021170" target="_blank" class="btn-help">💬 Precisa de ajuda?</a>
+    <div class="nav"></div>
+  </div>
+  <div class="sidebarFooter">
+    <div class="userTag" id="userTag"></div>
+    <button type="button" class="navLogout" onclick="logout()">🚪 Sair</button>
+    <div style="font-size: 11px; text-align: center; color: var(--muted); padding-top: 10px; line-height: 1.4;">
+      © 2026 Sistema. All rights reserved.<br>
+      Made with ❤ and ☕ by <b>Wandame Aguiar</b>
+    </div>
+  </div>
+</aside>
+
+<main class="main">
+<section id="dashboard" class="section active">
+<div class="top"><div><h1>Dashboard</h1><div class="subtitle" id="todayLabel"></div></div><button class="btn primary" onclick="openModal()">+ Novo agendamento</button></div>
+<div class="cards" id="dashCards">
+<div class="card"><div class="label">Faturamento hoje</div><div class="value" id="todayRevenue">R$ 0,00</div><div class="small" id="todayCount">0 atendimentos</div></div>
+<div class="card"><div class="label">Faturamento da semana</div><div class="value" id="weekRevenue">R$ 0,00</div><div class="small" id="weekCount">0 atendimentos</div></div>
+<div class="card" id="monthCardWrap"><div class="label">Faturamento do mês</div><div class="value" id="monthRevenue">R$ 0,00</div><div class="small" id="monthCount">0 atendimentos</div></div>
+<div class="card"><div class="label">Horários livres hoje</div><div class="value" id="freeCount">0</div><div class="small">considerando os horários configurados</div></div>
+</div>
+<div class="grid">
+<div class="panel"><h2>Próximos atendimentos</h2><div id="nextAppointments"></div></div>
+<div class="panel" id="monthSummaryPanel"><h2>Resumo do mês</h2><div id="monthSummary"></div></div>
+</div>
+</section>
+
+<section id="agenda" class="section">
+<div class="top"><div><h1>Agenda</h1><div class="subtitle">Controle seus horários e atendimentos</div></div><button class="btn primary" onclick="openModal()">+ Novo agendamento</button></div>
+<div class="panel">
+<div class="calendar-head"><div class="date-nav"><button onclick="changeDay(-1)">‹</button><input type="date" id="agendaDate" onchange="renderAgenda()"><button onclick="changeDay(1)">›</button></div><button class="btn secondary" onclick="goToday()">Hoje</button></div>
+<div class="slots" id="slots"></div>
+</div>
+<br>
+<div class="panel"><h2>Agendamentos do dia</h2><div class="table-wrap" id="dayTable"></div></div>
+</section>
+
+<section id="clientes" class="section">
+<div class="top"><div><h1>Clientes</h1><div class="subtitle">Histórico de clientes cadastrados nos agendamentos</div></div></div>
+<div class="panel">
+<div class="filters"><input id="clientSearch" placeholder="🔎 Buscar nome ou telefone" oninput="renderClients()"><button class="btn primary" onclick="openClientModal()">+ Cadastrar cliente</button></div>
+<div class="table-wrap" id="clientTable"></div>
+</div>
+</section>
+
+<section id="relatorios" class="section">
+<div class="top">
+  <div><h1>Relatórios</h1><div class="subtitle">Acompanhe o desempenho financeiro do salão</div></div>
+  <div class="report-downloads">
+    <button class="btn primary" onclick="downloadReportPDF('day')">📄 Baixar relatório diário</button>
+    <button class="btn primary" onclick="downloadReportPDF('month')">📄 Baixar relatório mensal</button>
+    <button class="btn primary" onclick="downloadReportPDF('year')">📄 Baixar relatório anual</button>
+  </div>
+</div>
+<div id="reportExportContainer">
+<div class="report-grid">
+<div class="card"><div class="label">Hoje</div><div class="value" id="rToday">R$ 0,00</div></div>
+<div class="card"><div class="label">Este mês</div><div class="value" id="rMonth">R$ 0,00</div></div>
+<div class="card"><div class="label">Este ano</div><div class="value" id="rYear">R$ 0,00</div></div>
+</div><br>
+<div class="panel">
+<h2>Filtros de faturamento</h2>
+<div class="filters">
+<select id="reportPeriod" onchange="renderReports()">
+<option value="day">Dia</option><option value="month" selected>Mês</option><option value="year">Ano</option>
+</select>
+<input type="date" id="reportDay" onchange="renderReports()">
+<input type="month" id="reportMonth" onchange="renderReports()">
+<select id="reportYear" onchange="renderReports()"></select>
+</div>
+<div class="report-grid">
+<div class="card"><div class="label">Período selecionado</div><div class="value" id="filteredRevenue">R$ 0,00</div></div>
+<div class="card"><div class="label">Atendimentos</div><div class="value" id="filteredCount">0</div></div>
+<div class="card"><div class="label">Ticket médio</div><div class="value" id="filteredTicket">R$ 0,00</div></div>
+</div>
+</div><br>
+<div class="panel"><h2>Procedimentos mais realizados</h2><div id="procedureReport"></div></div>
+</div>
+</section>
+
+<section id="procedimentos" class="section">
+<div class="top"><div><h1>Procedimentos</h1><div class="subtitle">Cadastre os procedimentos oferecidos e seus valores padrão</div></div></div>
+<div class="panel">
+<div class="filters"><input id="procName" placeholder="Nome do procedimento"><input id="procPrice" type="number" min="0" step="0.01" placeholder="Valor padrão (R$)"><button type="button" class="btn primary" onclick="addProcedure()">+ Adicionar</button></div>
+<div class="table-wrap" id="procedureTable"></div>
+</div>
+</section>
+</main>
+</div>
+
+<div class="clientPage" id="clientPage" style="display:none">
+  <div class="clientWrap">
+    <div class="clientHeader">
+      <div class="authLogo">✂️ Agenda<span>Pro</span></div>
+      <button type="button" class="btn secondary" onclick="logout()">Sair</button>
+    </div>
+
+    <div class="clientCard" id="clientStepForm">
+      <h1>Agendar horário</h1>
+      <p class="subtitle">Preencha seus dados para marcar seu atendimento</p>
+      <form id="clientBookingForm" class="form">
+        <div class="field"><label>Nome *</label><input id="cbName" required placeholder="Seu nome completo"></div>
+        <div class="field"><label>WhatsApp *</label><input id="cbPhone" required placeholder="(85) 99999-9999"></div>
+        <div class="field full"><label>Foto do cabelo (opcional)</label><input id="cbPhoto" type="file" accept="image/*"><small style="color:#73798c">A foto fica salva neste navegador.</small><img id="cbPhotoPreview" class="photo-preview" style="display:none"></div>
+        <div class="field full"><label>Observações (opcional)</label><textarea id="cbNote" placeholder="Alguma preferência ou informação importante?"></textarea></div>
+        <div class="field"><label>Procedimento *</label><select id="clientProcedure" required></select></div>
+        <div class="field"><label>Data *</label><input type="date" id="cbDate" required></div>
+        <div class="field full"><label>Horário disponível *</label><div class="slots" id="cbSlots"></div></div>
+        <div class="form-actions full"><button class="btn primary">Confirmar agendamento</button></div>
+      </form>
+    </div>
+
+    <div class="clientCard" id="clientSuccess" style="display:none">
+      <div class="successIcon">✅</div>
+      <h1>Agendado com sucesso!</h1>
+      <p class="subtitle" id="successDetails"></p>
+      <button type="button" class="btn primary" onclick="newClientBooking()">Fazer novo agendamento</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal">
+<div class="modal-box">
+<div class="modal-head"><h2>Novo agendamento</h2><button class="close" onclick="closeModal()">✕</button></div>
+<form id="appointmentForm" class="form">
+<div class="field"><label>Nome do cliente *</label><input id="name" required placeholder="Ex.: Maria Silva"></div>
+<div class="field"><label>Contato / WhatsApp *</label><input id="phone" required placeholder="(85) 99999-9999"></div>
+<div class="field"><label>Data *</label><input type="date" id="date" required></div>
+<div class="field"><label>Hora *</label><select id="time" required></select></div>
+<div class="field"><label>Procedimento *</label><select id="procedure" required></select></div>
+<div class="field"><label>Valor (R$) *</label><input id="price" type="number" min="0" step="0.01" required placeholder="0,00"></div>
+<div class="field"><label>Status</label><select id="status"><option>Agendado</option><option>Confirmado</option><option>Atendido</option><option>Cancelado</option></select></div>
+<div class="field full"><label>Observação para o cliente</label><textarea id="note" placeholder="Ex.: chegar 10 minutos antes..."></textarea></div>
+<div class="form-actions full"><button type="button" class="btn secondary" onclick="closeModal()">Cancelar</button><button class="btn primary">Salvar agendamento</button></div>
+</form>
+</div>
+</div>
+
+<div class="modal" id="clientModal">
+<div class="modal-box">
+<div class="modal-head"><h2>Cadastro de cliente</h2><button class="close" onclick="closeClientModal()">✕</button></div>
+<form id="clientForm" class="form">
+<div class="field"><label>Nome do cliente *</label><input id="clientName" required placeholder="Ex.: Maria Silva"></div>
+<div class="field"><label>Contato / WhatsApp *</label><input id="clientPhone" required placeholder="(85) 99999-9999"></div>
+<div class="field full"><label>Foto do cabelo</label><input id="clientPhoto" type="file" accept="image/*"><small style="color:#73798c">A foto fica salva neste navegador.</small><img id="photoPreview" class="photo-preview" style="display:none"></div>
+<div class="field full"><label>Observações do cliente</label><textarea id="clientNote" placeholder="Ex.: prefere corte em camadas, cor utilizada, cuidados, preferências..."></textarea></div>
+<div class="form-actions full"><button type="button" class="btn secondary" onclick="closeClientModal()">Cancelar</button><button class="btn primary">Salvar cliente</button></div>
+</form>
+</div></div>
+
+<script>
+const STORAGE='agendapro_v1';
+const hours=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00'];
+let appointments=JSON.parse(localStorage.getItem(STORAGE)||'[]');
+const CLIENT_STORAGE='agendapro_clients_v1';
+let clients=JSON.parse(localStorage.getItem(CLIENT_STORAGE)||'[]');
+const PROC_STORAGE='agendapro_procedures_v1';
+let procedures=JSON.parse(localStorage.getItem(PROC_STORAGE)||'null')||[
+ {id:1,name:'Corte',price:0},{id:2,name:'Escova',price:0},{id:3,name:'Coloração',price:0},
+ {id:4,name:'Manicure',price:0},{id:5,name:'Pedicure',price:0},{id:6,name:'Sobrancelha',price:0},
+ {id:7,name:'Barba',price:0},{id:8,name:'Hidratação',price:0},{id:9,name:'Outro',price:0}
+];
+const SESSION_STORAGE='agendapro_session_v1';
+let currentUser=JSON.parse(localStorage.getItem(SESSION_STORAGE)||'null');
+const ROLE_PASSWORDS={admin:'Salao1',funcionario:'Colaborador1'};
+let pendingRole=null;
+
+const money=v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
+const localDate=()=>{const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10)};
+const fmtDate=s=>new Date(s+'T12:00:00').toLocaleDateString('pt-BR');
+const save=()=>localStorage.setItem(STORAGE,JSON.stringify(appointments));
+const saveClients=()=>localStorage.setItem(CLIENT_STORAGE,JSON.stringify(clients));
+const saveProcedures=()=>localStorage.setItem(PROC_STORAGE,JSON.stringify(procedures));
+const validSales=a=>a.status!=='Cancelado';
+
+/* ---------- Login / perfis ---------- */
+function selectRole(role){
+ if(role==='cliente'){startSession('cliente');return}
+ pendingRole=role;
+ document.getElementById('roleSelect').style.display='none';
+ document.getElementById('loginForm').style.display='block';
+ document.getElementById('loginRoleLabel').textContent=role==='admin'?'Entrando como Administrador':'Entrando como Funcionário';
+ document.getElementById('loginPassword').value='';
+ document.getElementById('loginError').textContent='';
+ document.getElementById('loginPassword').focus();
+}
+function backToRoles(){
+ pendingRole=null;
+ document.getElementById('loginForm').style.display='none';
+ document.getElementById('roleSelect').style.display='block';
+}
+document.getElementById('loginForm').addEventListener('submit',e=>{
+ e.preventDefault();
+ const pass=document.getElementById('loginPassword').value;
+ if(pendingRole&&pass===ROLE_PASSWORDS[pendingRole]){startSession(pendingRole)}
+ else{document.getElementById('loginError').textContent='Senha incorreta. Tente novamente.'}
+});
+function startSession(role){
+ currentUser={role};
+ localStorage.setItem(SESSION_STORAGE,JSON.stringify(currentUser));
+ enterApp();
+}
+function logout(){
+ currentUser=null;
+ localStorage.removeItem(SESSION_STORAGE);
+ document.getElementById('app').style.display='none';
+ document.getElementById('clientPage').style.display='none';
+ document.getElementById('authScreen').style.display='flex';
+ backToRoles();
+}
+function enterApp(){
+ document.getElementById('authScreen').style.display='none';
+ if(currentUser.role==='cliente'){
+   document.getElementById('app').style.display='none';
+   document.getElementById('clientPage').style.display='block';
+   initClientPage();
+ }else{
+   document.getElementById('clientPage').style.display='none';
+   document.getElementById('app').style.display='flex';
+   initAdminApp();
+ }
+}
+function navItemsFor(role){
+ return [
+  {id:'dashboard',label:'🏠 Dashboard',roles:['admin','funcionario']},
+  {id:'agenda',label:'📅 Agenda',roles:['admin','funcionario']},
+  {id:'clientes',label:'👥 Clientes',roles:['admin','funcionario']},
+  {id:'procedimentos',label:'🧾 Procedimentos',roles:['admin']},
+  {id:'relatorios',label:'📊 Relatórios',roles:['admin']}
+ ].filter(i=>i.roles.includes(role));
+}
+function renderNav(){
+ const items=navItemsFor(currentUser.role);
+ document.querySelector('.nav').innerHTML=items.map(it=>`<button data-section="${it.id}">${it.label}</button>`).join('');
+ document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>showSection(b.dataset.section));
+ document.getElementById('userTag').textContent=currentUser.role==='admin'?'👑 Administrador':'👤 Funcionário';
+ showSection(items[0].id);
+}
+
+/* ---------- App administrativo / funcionário ---------- */
+function initAdminApp(){
+ renderNav();
+ document.getElementById('agendaDate').value=localDate();
+ document.getElementById('date').value=localDate();
+ fillTimes();
+ fillAllProcedureSelects();
+ reportDay.value=localDate();
+ reportMonth.value=localDate().slice(0,7);
+ const y=new Date().getFullYear();
+ reportYear.innerHTML=Array.from({length:7},(_,i)=>`<option>${y-3+i}</option>`).join('');
+ reportYear.value=y;
+ renderAll();
+}
+function showSection(id){
+ const allowed=navItemsFor(currentUser.role).map(i=>i.id);
+ if(!allowed.includes(id))id=allowed[0];
+ document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+ document.getElementById(id).classList.add('active');
+ document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.section===id));
+ renderAll();
+}
+function fillTimes(){
+ document.getElementById('time').innerHTML='<option value="">Selecione</option>'+hours.map(h=>`<option>${h}</option>`).join('');
+}
+function openModal(date=localDate(),time=''){
+ document.getElementById('modal').classList.add('show'); document.getElementById('date').value=date; document.getElementById('time').value=time;
+}
+function closeModal(){document.getElementById('modal').classList.remove('show');document.getElementById('appointmentForm').reset();document.getElementById('date').value=localDate();}
+document.getElementById('appointmentForm').addEventListener('submit',e=>{
+ e.preventDefault();
+ const date=document.getElementById('date').value,time=document.getElementById('time').value;
+ if(appointments.some(a=>a.date===date&&a.time===time&&a.status!=='Cancelado')){alert('Este horário já está ocupado. Escolha outro horário.');return}
+ appointments.push({id:Date.now(),name:name.value.trim(),phone:phone.value.trim(),date,time,procedure:procedure.value,price:Number(price.value),status:status.value,note:note.value.trim(),createdAt:new Date().toISOString()});
+ save(); closeModal(); renderAll(); alert('Agendamento salvo com sucesso!');
+});
+document.getElementById('procedure').addEventListener('change',e=>{
+ const opt=e.target.selectedOptions[0];
+ if(opt&&opt.dataset.price)document.getElementById('price').value=opt.dataset.price;
+});
+function renderAll(){
+ renderDashboard();renderAgenda();renderClients();
+ if(currentUser&&currentUser.role==='admin'){renderReports();renderProcedures()}
+}
+
+/* ---------- Procedimentos ---------- */
+function fillProcedureSelect(selectEl,withPrice){
+ if(!selectEl)return;
+ selectEl.innerHTML='<option value="">Selecione</option>'+procedures.map(p=>`<option value="${esc(p.name)}" data-price="${p.price}">${esc(p.name)}${withPrice?` — ${money(p.price)}`:''}</option>`).join('');
+}
+function fillAllProcedureSelects(){
+ fillProcedureSelect(document.getElementById('procedure'),false);
+ fillProcedureSelect(document.getElementById('clientProcedure'),true);
+}
+function addProcedure(){
+ const name=procName.value.trim(),price=Number(procPrice.value)||0;
+ if(!name){alert('Informe o nome do procedimento.');return}
+ procedures.push({id:Date.now(),name,price}); saveProcedures();
+ procName.value='';procPrice.value='';
+ renderProcedures(); fillAllProcedureSelects();
+}
+function removeProcedure(id){
+ if(!confirm('Remover este procedimento?'))return;
+ procedures=procedures.filter(p=>p.id!==id); saveProcedures();
+ renderProcedures(); fillAllProcedureSelects();
+}
+function renderProcedures(){
+ procedureTable.innerHTML=procedures.length?`<table><tr><th>Procedimento</th><th>Valor padrão</th><th></th></tr>${procedures.map(p=>`<tr><td>${esc(p.name)}</td><td>${money(p.price)}</td><td><button type="button" class="btn secondary" onclick="removeProcedure(${p.id})">Remover</button></td></tr>`).join('')}</table>`:'<div class="empty">Nenhum procedimento cadastrado.</div>';
+}
+function inPeriod(a,start,end){return validSales(a)&&a.date>=start&&a.date<=end}
+function periodTotals(start,end){const x=appointments.filter(a=>inPeriod(a,start,end));return {revenue:x.reduce((s,a)=>s+a.price,0),count:x.length}}
+function startWeek(d){let x=new Date(d+'T12:00:00'),day=x.getDay();x.setDate(x.getDate()-(day===0?6:day-1));return x.toISOString().slice(0,10)}
+function endWeek(d){let x=new Date(startWeek(d)+'T12:00:00');x.setDate(x.getDate()+6);return x.toISOString().slice(0,10)}
+function renderDashboard(){
+ const t=localDate(), w=periodTotals(startWeek(t),endWeek(t)),m=periodTotals(t.slice(0,7)+'-01',new Date(new Date(t+'T12:00:00').getFullYear(),new Date(t+'T12:00:00').getMonth()+1,0).toISOString().slice(0,10)),day=periodTotals(t,t);
+ todayLabel.textContent=new Date(t+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+ todayRevenue.textContent=money(day.revenue);todayCount.textContent=`${day.count} atendimento(s)`;
+ weekRevenue.textContent=money(w.revenue);weekCount.textContent=`${w.count} atendimento(s)`;
+ monthRevenue.textContent=money(m.revenue);monthCount.textContent=`${m.count} atendimento(s)`;
+ freeCount.textContent=hours.filter(h=>!appointments.some(a=>a.date===t&&a.time===h&&a.status!=='Cancelado')).length;
+ const upcoming=appointments.filter(a=>a.date>=t&&a.status!=='Cancelado').sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)).slice(0,7);
+ nextAppointments.innerHTML=upcoming.length?`<div class="table-wrap"><table><tr><th>Data</th><th>Hora</th><th>Cliente</th><th>Valor</th></tr>${upcoming.map(a=>`<tr><td>${fmtDate(a.date)}</td><td>${a.time}</td><td><b>${esc(a.name)}</b><br><small>${esc(a.procedure)}</small></td><td>${money(a.price)}</td></tr>`).join('')}</table></div>`:'<div class="empty">Nenhum próximo atendimento.</div>';
+ const att=m.count,avg=att?m.revenue/att:0;
+ monthSummary.innerHTML=`<p><b>${att}</b> atendimento(s) no mês</p><p>Ticket médio: <b>${money(avg)}</b></p><p>Faturamento: <b>${money(m.revenue)}</b></p>`;
+ const isAdmin=currentUser.role==='admin';
+ document.getElementById('monthCardWrap').style.display=isAdmin?'':'none';
+ document.getElementById('monthSummaryPanel').style.display=isAdmin?'':'none';
+ document.getElementById('dashCards').classList.toggle('cols-3',!isAdmin);
+}
+
+/* ---------- Agenda & fotos ---------- */
+function setStatus(id, newStatus){
+ const a = appointments.find(x => x.id === id);
+ if(a){
+  a.status = newStatus;
+  save();
+  renderAll();
+ }
+}
+
+function renderAgenda(){
+ const d=agendaDate.value||localDate(), list=appointments.filter(a=>a.date===d).sort((a,b)=>a.time.localeCompare(b.time));
+ slots.innerHTML=hours.map(h=>{const a=list.find(x=>x.time===h&&x.status!=='Cancelado');return a?`<div class="slot busy"><strong>${h}</strong>${esc(a.name)}<small>${esc(a.procedure)} • ${money(a.price)}</small></div>`:`<div class="slot free" onclick="openModal('${d}','${h}')"><strong>${h}</strong>Disponível<small>Clique para agendar</small></div>`}).join('');
+ 
+ dayTable.innerHTML=list.length?`<table>
+   <tr>
+     <th>Hora</th>
+     <th>Cliente</th>
+     <th>Foto</th>
+     <th>Procedimento</th>
+     <th>Valor</th>
+     <th>Status</th>
+     <th>Obs.</th>
+     <th>Ações</th>
+   </tr>
+   ${list.map(a=>{
+     const client = clients.find(c=>c.phone===a.phone);
+     const photoSrc = client?.photo || '';
+     return `<tr>
+       <td><b>${a.time}</b></td>
+       <td>${esc(a.name)}<br><small>${esc(a.phone)}</small></td>
+       <td>
+         ${photoSrc ? `<img src="${photoSrc}" class="client-photo"><br><a href="${photoSrc}" download="foto_${esc(a.name)}.png" class="btn secondary btn-sm">⬇️ Baixar</a>` : '<small style="color:var(--muted)">Sem foto</small>'}
+       </td>
+       <td>${esc(a.procedure)}</td>
+       <td>${money(a.price)}</td>
+       <td><span class="badge ${badge(a.status)}">${a.status}</span></td>
+       <td>${esc(a.note||'-')}</td>
+       <td>
+         <button type="button" class="btn success btn-sm" onclick="setStatus(${a.id}, 'Atendido')">Concluído</button>
+         <button type="button" class="btn danger btn-sm" onclick="setStatus(${a.id}, 'Cancelado')">Não Concluído</button>
+       </td>
+     </tr>`;
+   }).join('')}
+ </table>`:'<div class="empty">Nenhum agendamento para esta data.</div>';
+}
+function badge(s){return {'Agendado':'b-agendado','Confirmado':'b-confirmado','Atendido':'b-atendido','Cancelado':'b-cancelado'}[s]||'b-agendado'}
+function changeDay(n){let d=new Date((agendaDate.value||localDate())+'T12:00:00');d.setDate(d.getDate()+n);agendaDate.value=d.toISOString().slice(0,10);renderAgenda()}
+function goToday(){agendaDate.value=localDate();renderAgenda()}
+
+/* ---------- Gestão de Clientes ---------- */
+function openClientModal(){clientModal.classList.add('show');}
+function closeClientModal(){clientModal.classList.remove('show');clientForm.reset();photoPreview.style.display='none';photoPreview.src='';}
+clientPhoto.addEventListener('change',()=>{
+ const f=clientPhoto.files[0]; if(!f)return;
+ const r=new FileReader(); r.onload=e=>{photoPreview.src=e.target.result;photoPreview.style.display='block'}; r.readAsDataURL(f);
+});
+clientForm.addEventListener('submit',e=>{
+ e.preventDefault();
+ const phoneVal=clientPhone.value.trim();
+ const existing=clients.find(c=>c.phone===phoneVal);
+ const saveClient=(photo='')=>{
+   const obj={id:existing?.id||Date.now(),name:clientName.value.trim(),phone:phoneVal,photo:photo||existing?.photo||'',note:clientNote.value.trim(),updatedAt:new Date().toISOString()};
+   if(existing) clients=clients.map(c=>c.id===existing.id?obj:c); else clients.push(obj);
+   saveClients(); closeClientModal(); renderClients(); alert(existing?'Cliente atualizado com sucesso!':'Cliente cadastrado com sucesso!');
+ };
+ const f=clientPhoto.files[0];
+ if(f){const r=new FileReader();r.onload=e=>saveClient(e.target.result);r.readAsDataURL(f)} else saveClient();
+});
+
+function removeClient(phone){
+ if(!confirm('Tem certeza de que deseja remover este cliente? Todos os seus agendamentos no sistema também serão excluídos.')) return;
+ clients = clients.filter(c => c.phone !== phone);
+ saveClients();
+
+ appointments = appointments.filter(a => a.phone !== phone);
+ save();
+
+ renderAll();
+}
+
+function renderClients(){
+ const q=(clientSearch.value||'').toLowerCase();const map=new Map();
+ clients.forEach(c=>map.set(c.phone,{...c,count:0,total:0,last:''}));
+ appointments.forEach(a=>{
+   if(!map.has(a.phone))map.set(a.phone,{id:null,name:a.name,phone:a.phone,photo:'',note:'',count:0,total:0,last:a.date});
+   const c=map.get(a.phone);c.count++;if(validSales(a))c.total+=a.price;if(a.date>c.last)c.last=a.date;
+ });
+ let cs=[...map.values()].filter(c=>(c.name+c.phone).toLowerCase().includes(q)).sort((a,b)=>(b.last||'').localeCompare(a.last||''));
+ clientTable.innerHTML=cs.length?`<table>
+   <tr>
+     <th>Cliente</th>
+     <th>Contato</th>
+     <th>Atendimentos</th>
+     <th>Total</th>
+     <th>Último atendimento</th>
+     <th>Observação</th>
+     <th>Ações</th>
+   </tr>
+   ${cs.map(c=>`<tr>
+     <td>${c.photo?`<img class="client-photo" src="${c.photo}">`:''}<b>${esc(c.name)}</b></td>
+     <td>${esc(c.phone)}</td>
+     <td>${c.count}</td>
+     <td>${money(c.total)}</td>
+     <td>${c.last?fmtDate(c.last):'—'}</td>
+     <td>${esc(c.note||'-')}</td>
+     <td><button type="button" class="btn danger btn-sm" onclick="removeClient('${c.phone}')">Remover</button></td>
+   </tr>`).join('')}
+ </table>`:'<div class="empty">Nenhum cliente encontrado.</div>';
+}
+
+/* ---------- Relatórios e Exportação ---------- */
+function renderReports(){
+ const t=localDate(),d=new Date(t+'T12:00:00'),monthStart=t.slice(0,7)+'-01',yearStart=d.getFullYear()+'-01-01';
+ rToday.textContent=money(periodTotals(t,t).revenue);rMonth.textContent=money(periodTotals(monthStart,t).revenue);rYear.textContent=money(periodTotals(yearStart,t).revenue);
+ const period=reportPeriod.value;
+ 
+ document.getElementById('reportDay').style.display = period==='day'?'inline-block':'none';
+ document.getElementById('reportMonth').style.display = period==='month'?'inline-block':'none';
+ document.getElementById('reportYear').style.display = period==='year'?'inline-block':'none';
+
+ let start,end,label;
+ if(period==='day'){start=end=reportDay.value||t;label=fmtDate(start)}
+ else if(period==='month'){const m=reportMonth.value||t.slice(0,7);const [yy,mm]=m.split('-').map(Number);start=`${m}-01`;end=new Date(yy,mm,0).toISOString().slice(0,10);label=`${mm.toString().padStart(2,'0')}/${yy}`}
+ else {const yy=Number(reportYear.value||d.getFullYear());start=`${yy}-01-01`;end=`${yy}-12-31`;label=String(yy)}
+ const filtered=appointments.filter(a=>inPeriod(a,start,end));
+ const revenue=filtered.reduce((s,a)=>s+a.price,0),count=filtered.length;
+ filteredRevenue.textContent=money(revenue);filteredCount.textContent=count;filteredTicket.textContent=money(count?revenue/count:0);
+ const map={};filtered.forEach(a=>map[a.procedure]=(map[a.procedure]||0)+1);
+ const rows=Object.entries(map).sort((a,b)=>b[1]-a[1]);const max=rows[0]?.[1]||1;
+ procedureReport.innerHTML=`<p style="color:var(--muted)">Período: <b>${label}</b></p>`+(rows.length?rows.map(([p,n])=>`<div style="margin:14px 0"><div style="display:flex;justify-content:space-between;margin-bottom:6px"><span>${esc(p)}</span><b>${n}</b></div><div class="bar"><i style="width:${n/max*100}%"></i></div></div>`).join(''):'<div class="empty">Não há atendimentos no período selecionado.</div>');
+}
+
+function downloadReportPDF(type){
+  const { jsPDF } = window.jspdf;
+  const t = localDate();
+  const today = new Date(t + 'T12:00:00');
+
+  let start, end, label, filename;
+  if(type === 'day'){
+    start = end = t;
+    label = `Diário — ${fmtDate(t)}`;
+    filename = `Relatorio_Diario_${t}.pdf`;
+  }else if(type === 'month'){
+    const m = reportMonth.value || t.slice(0,7);
+    const [yy, mm] = m.split('-').map(Number);
+    start = `${m}-01`;
+    end = new Date(yy, mm, 0).toISOString().slice(0,10);
+    label = `Mensal — ${String(mm).padStart(2,'0')}/${yy}`;
+    filename = `Relatorio_Mensal_${m}.pdf`;
+  }else{
+    const yy = Number(reportYear.value || today.getFullYear());
+    start = `${yy}-01-01`;
+    end = `${yy}-12-31`;
+    label = `Anual — ${yy}`;
+    filename = `Relatorio_Anual_${yy}.pdf`;
+  }
+
+  const data = appointments
+    .filter(a => inPeriod(a, start, end))
+    .sort((a,b) => (a.date+a.time).localeCompare(b.date+b.time));
+
+  const revenue = data.reduce((s,a) => s + Number(a.price || 0), 0);
+  const attended = data.filter(a => a.status === 'Atendido').length;
+  const canceled = data.filter(a => a.status === 'Cancelado').length;
+  const pending = data.filter(a => a.status !== 'Atendido' && a.status !== 'Cancelado').length;
+  const ticket = data.length ? revenue / data.length : 0;
+
+  const pdf = new jsPDF('p','mm','a4');
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const margin = 12;
+  const usableW = pageW - margin*2;
+  let y = 16;
+
+  function header(){
+    pdf.setFont('helvetica','bold');
+    pdf.setFontSize(18);
+    pdf.text('AgendaPro', margin, y);
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica','normal');
+    pdf.text('Relatório de atendimentos e faturamento', margin, y+6);
+    pdf.text(label, pageW-margin, y+6, {align:'right'});
+    y += 14;
+    pdf.setDrawColor(220,200,200);
+    pdf.line(margin,y,pageW-margin,y);
+    y += 7;
+  }
+
+  function footer(){
+    const page = pdf.internal.getNumberOfPages();
+    pdf.setFont('helvetica','normal');
+    pdf.setFontSize(8);
+    pdf.setTextColor(120);
+    pdf.text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, margin, pageH-7);
+    pdf.text(`Página ${page}`, pageW-margin, pageH-7, {align:'right'});
+    pdf.setTextColor(0);
+  }
+
+  function ensure(h){
+    if(y + h > pageH - 15){
+      footer();
+      pdf.addPage();
+      y = 16;
+      header();
+    }
+  }
+
+  function wrapped(text, x, yy, width, lineH=4.5){
+    const lines = pdf.splitTextToSize(String(text || '-'), width);
+    ensure(lines.length*lineH + 2);
+    pdf.text(lines, x, yy);
+    return yy + lines.length*lineH;
+  }
+
+  header();
+
+  // Resumo
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(13);
+  pdf.text('Resumo do período', margin, y);
+  y += 7;
+  pdf.setFont('helvetica','normal');
+  pdf.setFontSize(10);
+
+  [
+    `Faturamento: ${money(revenue)}`,
+    `Total de registros: ${data.length}`,
+    `Atendidos: ${attended}`,
+    `Pendentes/Agendados: ${pending}`,
+    `Cancelados: ${canceled}`,
+    `Ticket médio: ${money(ticket)}`
+  ].forEach((s,i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    pdf.text(s, margin + col*(usableW/2), y + row*6);
+  });
+  y += 20;
+
+  // Procedimentos
+  const procMap = {};
+  data.forEach(a => procMap[a.procedure] = (procMap[a.procedure] || 0) + 1);
+  const procRows = Object.entries(procMap).sort((a,b)=>b[1]-a[1]);
+
+  if(procRows.length){
+    ensure(14);
+    pdf.setFont('helvetica','bold');
+    pdf.setFontSize(12);
+    pdf.text('Procedimentos realizados', margin, y);
+    y += 6;
+    pdf.setFont('helvetica','normal');
+    pdf.setFontSize(9);
+    procRows.forEach(([p,n]) => {
+      ensure(5);
+      pdf.text(`${p}: ${n} atendimento(s)`, margin+2, y);
+      y += 5;
+    });
+    y += 3;
+  }
+
+  // Todos os atendimentos das clientes.
+  ensure(14);
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(12);
+  pdf.text('Atendimentos das clientes', margin, y);
+  y += 7;
+
+  if(!data.length){
+    pdf.setFont('helvetica','normal');
+    pdf.setFontSize(10);
+    pdf.text('Nenhum atendimento/agendamento encontrado no período.', margin, y);
+    y += 8;
+  }else{
+    data.forEach((a, idx) => {
+      const client = clients.find(c => c.phone === a.phone);
+      const note = a.note || client?.note || '';
+      const noteLines = pdf.splitTextToSize(note || '-', usableW-34);
+      const blockH = 27 + Math.max(0, noteLines.length-1)*4;
+
+      ensure(blockH + 7);
+      pdf.setFillColor(249,242,240);
+      pdf.roundedRect(margin, y-4, usableW, blockH, 2, 2, 'F');
+
+      pdf.setFont('helvetica','bold');
+      pdf.setFontSize(10);
+      pdf.text(`${idx+1}. ${a.name || 'Cliente'}`, margin+3, y+2);
+
+      pdf.setFont('helvetica','normal');
+      pdf.setFontSize(8.5);
+      pdf.text(`Data: ${fmtDate(a.date)}   Hora: ${a.time || '-'}`, margin+3, y+7);
+      pdf.text(`Telefone/WhatsApp: ${a.phone || '-'}`, margin+3, y+12);
+      pdf.text(`Procedimento: ${a.procedure || '-'}`, margin+3, y+17);
+      pdf.text(`Valor: ${money(a.price)}   Status: ${a.status || '-'}`, pageW-margin-3, y+17, {align:'right'});
+      pdf.text('Observação:', margin+3, y+22);
+      pdf.text(noteLines, margin+29, y+22);
+
+      y += blockH + 5;
+
+      if(client?.note && client.note !== a.note){
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica','italic');
+        y = wrapped(`Observação cadastrada da cliente: ${client.note}`, margin+5, y, usableW-10, 4);
+        y += 2;
+      }
+    });
+  }
+
+  footer();
+  pdf.save(filename);
+}
+
+function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+
+/* ---------- Painel do cliente ---------- */
+let selectedSlot='';
+function initClientPage(){
+ document.getElementById('clientBookingForm').reset();
+ document.getElementById('cbPhotoPreview').style.display='none';
+ document.getElementById('clientStepForm').style.display='block';
+ document.getElementById('clientSuccess').style.display='none';
+ cbDate.value=localDate();
+ fillProcedureSelect(document.getElementById('clientProcedure'),true);
+ selectedSlot='';
+ renderClientSlots();
+}
+document.getElementById('cbDate').addEventListener('change',renderClientSlots);
+function renderClientSlots(){
+ const d=cbDate.value||localDate();
+ const taken=new Set(appointments.filter(a=>a.date===d&&a.status!=='Cancelado').map(a=>a.time));
+ selectedSlot='';
+ cbSlots.innerHTML=hours.map(h=>{
+   const busy=taken.has(h);
+   return `<div class="slot ${busy?'busy':'free'}" data-time="${h}" ${busy?'':`onclick="pickSlot('${h}')"`}><strong>${h}</strong>${busy?'Ocupado':'Disponível'}</div>`;
+ }).join('');
+}
+function pickSlot(h){
+ selectedSlot=h;
+ document.querySelectorAll('#cbSlots .slot').forEach(el=>el.classList.remove('selected'));
+ const el=document.querySelector(`#cbSlots .slot[data-time="${h}"]`);
+ if(el)el.classList.add('selected');
+}
+document.getElementById('cbPhoto').addEventListener('change',()=>{
+ const f=document.getElementById('cbPhoto').files[0];if(!f)return;
+ const r=new FileReader();r.onload=e=>{cbPhotoPreview.src=e.target.result;cbPhotoPreview.style.display='block'};r.readAsDataURL(f);
+});
+document.getElementById('clientBookingForm').addEventListener('submit',e=>{
+ e.preventDefault();
+ const date=cbDate.value;
+ if(!selectedSlot){alert('Escolha um horário disponível.');return}
+ if(appointments.some(a=>a.date===date&&a.time===selectedSlot&&a.status!=='Cancelado')){
+   alert('Esse horário acabou de ser ocupado. Escolha outro horário.');
+   renderClientSlots(); return;
+ }
+ const procSelect=document.getElementById('clientProcedure');
+ const procOpt=procSelect.selectedOptions[0];
+ const price=procOpt?Number(procOpt.dataset.price||0):0;
+ const name=cbName.value.trim(),phone=cbPhone.value.trim();
+ const appt={id:Date.now(),name,phone,date,time:selectedSlot,procedure:procSelect.value,price,status:'Agendado',note:cbNote.value.trim(),createdAt:new Date().toISOString()};
+ const f=document.getElementById('cbPhoto').files[0];
+ const finish=(photo='')=>{
+   appointments.push(appt); save();
+   const existing=clients.find(c=>c.phone===phone);
+   const obj={id:existing?.id||Date.now(),name,phone,photo:photo||existing?.photo||'',note:cbNote.value.trim(),updatedAt:new Date().toISOString()};
+   if(existing)clients=clients.map(c=>c.id===existing.id?obj:c);else clients.push(obj);
+   saveClients();
+   showClientSuccess(appt);
+ };
+ if(f){const r=new FileReader();r.onload=e=>finish(e.target.result);r.readAsDataURL(f)}else finish();
+});
+function showClientSuccess(appt){
+ document.getElementById('clientStepForm').style.display='none';
+ document.getElementById('clientSuccess').style.display='block';
+ successDetails.textContent=`${appt.procedure} em ${fmtDate(appt.date)} às ${appt.time}.`;
+}
+function newClientBooking(){initClientPage()}
+
+/* ---------- Boot ---------- */
+function boot(){
+ if(currentUser){enterApp()}
+}
+boot();
+</script>
+</body>
+</html>
