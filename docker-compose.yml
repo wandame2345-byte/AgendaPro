@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: agendapro-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agendapro
+      POSTGRES_USER: agendapro
+      POSTGRES_PASSWORD: agendapro
+    ports:
+      - "5432:5432"
+    volumes:
+      - agendapro_pgdata:/var/lib/postgresql/data
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agendapro-app
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://agendapro:agendapro@postgres:5432/agendapro
+      JWT_SECRET: troque-esta-chave-local
+      ADMIN_EMAIL: admin@agendapro.local
+      ADMIN_PASSWORD: TroqueEssaSenha123!
+      ADMIN_NAME: Administrador
+      FUNC_EMAIL: funcionario@agendapro.local
+      FUNC_PASSWORD: TroqueEssaSenha456!
+      FUNC_NAME: Funcionário
+      UPLOAD_DIR: /app/uploads
+    ports:
+      - "3000:3000"
+    volumes:
+      - agendapro_uploads:/app/uploads
+
+volumes:
+  agendapro_pgdata:
+  agendapro_uploads:
