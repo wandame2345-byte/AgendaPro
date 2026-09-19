@@ -1,41 +1,113 @@
 services:
+
   postgres:
     image: postgres:17-alpine
     container_name: agendapro-postgres
     restart: unless-stopped
+
     environment:
-      POSTGRES_DB: agendapro
-      POSTGRES_USER: agendapro
-      POSTGRES_PASSWORD: agendapro
+      POSTGRES_DB: ${POSTGRES_DB:-agendapro}
+      POSTGRES_USER: ${POSTGRES_USER:-agendapro}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-agendapro} -d ${POSTGRES_DB:-agendapro}
+      timeout: 5s
+      interval: 5s
+      retries: 10
+
     ports:
       - "5432:5432"
+
     volumes:
       - agendapro_pgdata:/var/lib/postgresql/data
+
 
   app:
     build:
       context: .
       dockerfile: Dockerfile
+
     container_name: agendapro-app
     restart: unless-stopped
+
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
     environment:
       NODE_ENV: production
-      PORT: 3000
-      DATABASE_URL: postgresql://agendapro:agendapro@postgres:5432/agendapro
-      JWT_SECRET: troque-esta-chave-local
-      ADMIN_EMAIL: admin@agendapro.local
-      ADMIN_PASSWORD: TroqueEssaSenha123!
-      ADMIN_NAME: Administrador
-      FUNC_EMAIL: funcionario@agendapro.local
-      FUNC_PASSWORD: TroqueEssaSenha456!
-      FUNC_NAME: Funcionário
-      UPLOAD_DIR: /app/uploads
+      PORT: "3000"
+
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-agendapro}:${POSTGRES_PASSWORD}@host.docker.internal:5432/${POSTGRES_DB:-agendapro}"
+
+      JWT_SECRET: ${JWT_SECRET}
+
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_NAME: ${ADMIN_NAME:-Administrador}
+
+      FUNC_EMAIL: ${FUNC_EMAIL}
+      FUNC_PASSWORD: ${FUNC_PASSWORD}
+      FUNC_NAME: ${FUNC_NAME:-Funcionário}
+
     ports:
       - "3000:3000"
+
     volumes:
       - agendapro_uploads:/app/uploads
+
+
+  backup:
+    image: postgres:17-alpine
+    container_name: agendapro-backup
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+
+    volumes:
+      - ./backups:/backups
+
+    entrypoint:
+      - /bin/sh
+      - -c
+
+    command:
+      - |
+        while true
+        do
+          echo "Iniciando backup do AgendaPro..."
+
+          pg_dump \
+            -h postgres \
+            -U ${POSTGRES_USER:-agendapro} \
+            -d ${POSTGRES_DB:-agendapro} \
+            -Fc \
+            -f "/backups/agendapro_$$(date +%Y-%m-%d_%H-%M-%S).dump"
+
+          if [ $$? -eq 0 ]; then
+            echo "Backup concluido com sucesso."
+          else
+            echo "ERRO ao criar o backup."
+          fi
+
+          find /backups -type f -name "agendapro_*.dump" -mtime +7 -delete
+
+          echo "Proximo backup em 24 horas."
+
+          sleep 86400
+        done
+
 
 volumes:
   agendapro_pgdata:

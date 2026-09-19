@@ -169,6 +169,37 @@ button,input,select,textarea{font:inherit}button{cursor:pointer;border:0}
 <div class="table-wrap" id="procedureTable"></div>
 </div>
 </section>
+<section id="configuracoes" class="section">
+<div class="top">
+  <div>
+    <h1>Configurações</h1>
+    <div class="subtitle">Gerencie sua conta e altere sua senha de acesso</div>
+  </div>
+</div>
+<div class="panel" style="max-width:650px">
+  <h2>🔐 Alterar senha</h2>
+  <p style="color:var(--muted);font-size:13px;margin-top:-8px">A nova senha será salva permanentemente no sistema.</p>
+  <form id="passwordForm" class="form">
+    <div class="field full">
+      <label>Senha atual *</label>
+      <input type="password" id="currentPassword" required autocomplete="current-password" placeholder="Digite sua senha atual">
+    </div>
+    <div class="field full">
+      <label>Nova senha *</label>
+      <input type="password" id="newPassword" required minlength="6" autocomplete="new-password" placeholder="Digite a nova senha">
+    </div>
+    <div class="field full">
+      <label>Confirmar nova senha *</label>
+      <input type="password" id="confirmPassword" required minlength="6" autocomplete="new-password" placeholder="Digite novamente a nova senha">
+    </div>
+    <div id="passwordMessage" style="grid-column:1/-1;min-height:20px;font-size:13px"></div>
+    <div class="form-actions full">
+      <button type="button" class="btn secondary" onclick="clearPasswordForm()">Limpar</button>
+      <button type="submit" class="btn primary">🔐 Alterar senha</button>
+    </div>
+  </form>
+</div>
+</section>
 </main>
 </div>
 
