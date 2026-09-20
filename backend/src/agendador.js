@@ -9,18 +9,18 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(cors());
 
-// Caminho para a pasta do frontend
+// Define o caminho para a pasta frontend (ajusta a estrutura de pastas)
 const frontendPath = path.join(__dirname, '../../frontend');
 
-// Servir arquivos estáticos (CSS, JS, imagens)
+// Servir arquivos estáticos (HTML, CSS, JS, imagens)
 app.use(express.static(frontendPath));
 
-// Rota de teste/Healthcheck da API
+// Rota de Health Check da API
 app.get('/api/status', (req, res) => {
   res.json({ status: 'Servidor AgendaPro rodando com sucesso!' });
 });
 
-// Qualquer rota abre a interface visual (index.html)
+// Qualquer rota que não seja da API entrega o index.html da interface
 app.get('*', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
