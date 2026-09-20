@@ -12,4 +12,4 @@ RUN mkdir -p /app/uploads
 
 EXPOSE 3000
 
-CMD ["node", "backend/src/agendador.cjs"]
+CMD ["node", "backend/src/agendador.js"]
