@@ -5,4 +5,4 @@ RUN cd backend && npm install --omit=dev
 COPY . .
 RUN mkdir -p /app/uploads
 EXPOSE 3000
-CMD ["node", "backend/src/agendador.js"]
+CMD ["node", "backend/src/agendador.cjs"]
