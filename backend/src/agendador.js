@@ -1,37 +1,30 @@
-import cron from 'node-cron';
-import { enviarBackupParaGoogleSheets } from './googleBackup.js';
+const express = require('express');
+const path = require('path');
+const cors = require('cors');
 
-// Função para buscar os agendamentos do seu banco de dados
-async function buscarAgendamentosDoBanco() {
-  return [
-    {
-      id: 1005,
-      data: new Date().toISOString().split('T')[0],
-      horario: '10:00',
-      cliente: 'Maria Oliveira',
-      telefone: '(85) 98888-7777',
-      servico: 'Corte e Escova',
-      profissional: 'Ana',
-      valor: 90,
-      status: 'Concluído'
-    }
-  ];
-}
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-// Configurado para rodar todos os dias às 23:00
-function iniciarAgendamentoBackup() {
-  cron.schedule('0 23 * * *', async () => {
-    console.log('⏰ Iniciando backup diário automático...');
-    try {
-      const agendamentos = await buscarAgendamentosDoBanco();
-      await enviarBackupParaGoogleSheets(agendamentos);
-      console.log('✅ Backup diário concluído com sucesso!');
-    } catch (error) {
-      console.error('❌ Erro no backup automático:', error);
-    }
-  });
+// Middlewares
+app.use(express.json());
+app.use(cors());
 
-  console.log('🤖 Agendador de backup configurado para rodar diariamente às 23:00!');
-}
+// Caminho para a pasta do frontend
+const frontendPath = path.join(__dirname, '../../frontend');
 
-export { iniciarAgendamentoBackup };
+// Servir arquivos estáticos (CSS, JS, imagens)
+app.use(express.static(frontendPath));
+
+// Rota de teste/Healthcheck da API
+app.get('/api/status', (req, res) => {
+  res.json({ status: 'Servidor AgendaPro rodando com sucesso!' });
+});
+
+// Qualquer rota abre a interface visual (index.html)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'index.html'));
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
+});
