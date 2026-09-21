@@ -54,7 +54,6 @@ button,input,select,textarea{font:inherit}button{cursor:pointer;border:0}
 .btn-sm{padding:5px 9px;font-size:12px;border-radius:6px;margin:2px 0;display:inline-block;text-decoration:none}
 @media(max-width:950px){.sidebar{width:75px;padding:15px 8px}.logo{font-size:0;text-align:center}.logo:first-letter{font-size:22px}.btn-help{font-size:0;padding:10px 0;justify-content:center}.btn-help:before{content:"💬";font-size:16px}.nav button{font-size:0;text-align:center}.nav button:first-letter{font-size:19px}.navConfig{font-size:0;text-align:center}.navConfig:first-letter{font-size:19px}.main{margin-left:75px;width:calc(100% - 75px)}.cards{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.userTag{font-size:0;padding:8px 4px;text-align:center}.userTag:first-letter{font-size:15px}.navLogout{font-size:0;text-align:center}.navLogout:first-letter{font-size:16px}}
 @media(max-width:600px){.main{padding:15px}.top{align-items:flex-start;gap:10px}.top h1{font-size:22px}.cards{grid-template-columns:1fr 1fr}.form{grid-template-columns:1fr}.field.full{grid-column:auto}.report-grid{grid-template-columns:1fr}.slots{grid-template-columns:repeat(2,1fr)}}
-
 .report-downloads{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 @media(max-width:600px){.report-downloads{justify-content:flex-start}.report-downloads .btn{width:100%}}
 </style>
@@ -139,7 +138,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer;border:0}
 <div class="panel"><h2>Agendamentos do dia</h2><div class="table-wrap" id="dayTable"></div></div>
 <br>
 <div class="panel">
-<h2>🔎 Consultar período (ex.: dia 01 ao dia 09)</h2>
+<h2>🔎 Consultar período
 <div class="filters">
 <input type="date" id="agendaFilterStart">
 <input type="date" id="agendaFilterEnd">
@@ -172,29 +171,59 @@ button,input,select,textarea{font:inherit}button{cursor:pointer;border:0}
     <button class="btn primary" onclick="downloadReportPDF('year')">📄 Baixar relatório anual</button>
   </div>
 </div>
+
 <div id="reportExportContainer">
+
 <div class="report-grid">
 <div class="card"><div class="label">Hoje</div><div class="value" id="rToday">R$ 0,00</div></div>
 <div class="card"><div class="label">Este mês</div><div class="value" id="rMonth">R$ 0,00</div></div>
 <div class="card"><div class="label">Este ano</div><div class="value" id="rYear">R$ 0,00</div></div>
-</div><br>
-<div class="panel">
-<h2>Filtros de faturamento</h2>
+</div>
+
+<br>
+
+<div class="panel" style="margin-bottom:20px">
+<h2>🔎 Filtrar por período</h2>
+
 <div class="filters">
-<select id="reportPeriod" onchange="renderReports()">
-<option value="day">Dia</option><option value="month" selected>Mês</option><option value="year">Ano</option>
-</select>
-<input type="date" id="reportDay" onchange="renderReports()">
-<input type="month" id="reportMonth" onchange="renderReports()">
-<select id="reportYear" onchange="renderReports()"></select>
+<input type="date" id="reportStartDate">
+<input type="date" id="reportEndDate">
+
+<button type="button" class="btn primary" onclick="applyReportFilter()">
+Filtrar
+</button>
+
+<button type="button" class="btn secondary" onclick="clearReportFilter()">
+Limpar
+</button>
 </div>
+
 <div class="report-grid">
-<div class="card"><div class="label">Período selecionado</div><div class="value" id="filteredRevenue">R$ 0,00</div></div>
-<div class="card"><div class="label">Atendimentos</div><div class="value" id="filteredCount">0</div></div>
-<div class="card"><div class="label">Ticket médio</div><div class="value" id="filteredTicket">R$ 0,00</div></div>
+<div class="card">
+<div class="label">Faturamento no período</div>
+<div class="value" id="filteredRevenue">R$ 0,00</div>
 </div>
-</div><br>
-<div class="panel"><h2>Procedimentos mais realizados</h2><div id="procedureReport"></div></div>
+
+<div class="card">
+<div class="label">Atendimentos</div>
+<div class="value" id="filteredCount">0</div>
+</div>
+
+<div class="card">
+<div class="label">Ticket médio</div>
+<div class="value" id="filteredTicket">R$ 0,00</div>
+</div>
+</div>
+
+</div>
+
+<br>
+
+<div class="panel">
+<h2>Procedimentos mais realizados</h2>
+<div id="procedureReport"></div>
+</div>
+
 </div>
 </section>
 
@@ -205,6 +234,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer;border:0}
 <div class="table-wrap" id="procedureTable"></div>
 </div>
 </section>
+
 <section id="configuracoes" class="section">
 <div class="top">
   <div>
@@ -297,7 +327,8 @@ button,input,select,textarea{font:inherit}button{cursor:pointer;border:0}
 <div class="field full"><label>Observações do cliente</label><textarea id="clientNote" placeholder="Ex.: prefere corte em camadas, cor utilizada, cuidados, preferências..."></textarea></div>
 <div class="form-actions full"><button type="button" class="btn secondary" onclick="closeClientModal()">Cancelar</button><button class="btn primary">Salvar cliente</button></div>
 </form>
-</div></div>
+</div>
+</div>
 
 <script src="/app.js"></script>
 </body>
