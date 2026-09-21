@@ -707,7 +707,7 @@ function renderDashboard() {
 
 function showAppointmentDetails(id) {
   const appointment = appointments.find(
-    item => item.id === id
+    item => String(item.id) === String(id)
   );
 
   if (!appointment) {
@@ -1250,7 +1250,7 @@ $('clientForm').addEventListener(
   }
 );
 
-async async function downloadClientPhoto(id) {
+async function downloadClientPhoto(id) {
   const client = clients.find(
     item => String(item.id) === String(id)
   );
