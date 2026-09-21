@@ -5,31 +5,28 @@ arquivo = Path("frontend/app.js")
 codigo = arquivo.read_text(encoding="utf-8")
 
 inicio = codigo.find("async function downloadClientPhoto(id)")
+
 if inicio == -1:
     inicio = codigo.find("function downloadClientPhoto(id)")
 
-fim = codigo.find(
-    "/* =========================\n   PROCEDIMENTOS",
-    inicio
-)
+marcador = """/* =========================
+   PROCEDIMENTOS"""
+
+fim = codigo.find(marcador, inicio)
 
 if inicio == -1 or fim == -1:
     raise SystemExit(
-        "ERRO: não encontrei a seção correta no app.js."
+        "ERRO: não encontrei a seção CLIENTES no app.js."
     )
 
-secao_corrigida = r'''async function downloadClientPhoto(id) {
-  const client = clients.find(
-    item => String(item.id) === String(id)
-  );
-
-  if (!client || !client.photo) {
+secao_corrigida = r'''async function downloadClientPhoto(photo, clientName) {
+  if (!photo) {
     alert('Este cliente não tem foto cadastrada.');
     return;
   }
 
   try {
-    const response = await fetch(client.photo, {
+    const response = await fetch(photo, {
       credentials: 'include',
       cache: 'no-store'
     });
@@ -49,11 +46,9 @@ secao_corrigida = r'''async function downloadClientPhoto(id) {
       extension = 'webp';
     } else if (photoFile.type === 'image/gif') {
       extension = 'gif';
-    } else if (photoFile.type === 'image/jpeg') {
-      extension = 'jpg';
     }
 
-    const clientName = (client.name || 'cliente')
+    const safeName = (clientName || 'cliente')
       .trim()
       .replace(/[^a-zA-Z0-9À-ÿ_-]+/g, '_');
 
@@ -63,7 +58,7 @@ secao_corrigida = r'''async function downloadClientPhoto(id) {
     const link = document.createElement('a');
 
     link.href = temporaryUrl;
-    link.download = `${clientName}.${extension}`;
+    link.download = `${safeName}.${extension}`;
 
     document.body.appendChild(link);
     link.click();
@@ -142,13 +137,13 @@ function renderClients() {
                 ${
                   client.photo
                     ? `
-                      <button
-                        type="button"
+                      <a
                         class="btn secondary btn-sm"
-                        onclick="downloadClientPhoto(${client.id})"
+                        href="${esc(client.photo)}"
+                        download
                       >
                         ⬇️ Baixar foto
-                      </button>
+                      </a>
                     `
                     : ''
                 }
@@ -191,18 +186,14 @@ function removeClient(id) {
 
 '''
 
-novo_codigo = (
+arquivo.write_text(
     codigo[:inicio] +
     secao_corrigida +
-    codigo[fim:]
-)
-
-arquivo.write_text(
-    novo_codigo,
+    codigo[fim:],
     encoding="utf-8"
 )
 
-print("frontend/app.js substituído e corrigido.")
+print("app.js corrigido com sucesso.")
 PY
 
 node --check frontend/app.js
