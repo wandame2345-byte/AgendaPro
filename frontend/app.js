@@ -1250,9 +1250,9 @@ $('clientForm').addEventListener(
   }
 );
 
-async function downloadClientPhoto(id) {
+async async function downloadClientPhoto(id) {
   const client = clients.find(
-    item => item.id === id
+    item => String(item.id) === String(id)
   );
 
   if (!client || !client.photo) {
@@ -1281,6 +1281,8 @@ async function downloadClientPhoto(id) {
       extension = 'webp';
     } else if (photoFile.type === 'image/gif') {
       extension = 'gif';
+    } else if (photoFile.type === 'image/jpeg') {
+      extension = 'jpg';
     }
 
     const clientName = (client.name || 'cliente')
@@ -1309,114 +1311,6 @@ async function downloadClientPhoto(id) {
     );
   }
 }
-  const search =
-    ($('clientSearch').value || '')
-      .toLowerCase();
-
-  const filteredClients =
-    clients.filter(client =>
-      (
-        client.name +
-        client.phone
-      ).toLowerCase().includes(search)
-    );
-
-  $('clientTable').innerHTML =
-    filteredClients.length
-      ? `
-        <table>
-          <tr>
-            <th>Cliente</th>
-            <th>Contato</th>
-            <th>Atendimentos</th>
-            <th>Total</th>
-            <th>Último atendimento</th>
-            <th>Observação</th>
-            <th>Ações</th>
-          </tr>
-
-          ${filteredClients.map(client => `
-            <tr>
-              <td>
-                ${
-                  client.photo
-                    ? `
-                      <img
-                        class="client-photo"
-                        src="${esc(client.photo)}"
-                      >
-                    `
-                    : ''
-                }
-
-                <b>${esc(client.name)}</b>
-              </td>
-
-              <td>
-                ${esc(client.phone)}
-              </td>
-
-              <td>
-                ${client.count}
-              </td>
-
-              <td>
-                ${money(client.total)}
-              </td>
-
-              <td>
-                ${
-                  client.last
-                    ? fmtDate(client.last)
-                    : '—'
-                }
-              </td>
-
-              <td>
-                ${esc(client.note || '-')}
-              </td>
-
-              <td>
-                ${
-                  client.photo
-                    ? `
-                      <button
-                        type="button"
-                        class="btn secondary btn-sm"
-                        onclick="
-                          downloadClientPhoto(
-                            ${client.id}
-                          )
-                        "
-                      >
-                        ⬇️ Baixar foto
-                      </button>
-                    `
-                    : ''
-                }
-
-                <button
-                  type="button"
-                  class="btn danger btn-sm"
-                  onclick="
-                    removeClient(${client.id})
-                  "
-                >
-                  Remover
-                </button>
-              </td>
-            </tr>
-          `).join('')}
-        </table>
-      `
-      : `
-        <div class="empty">
-          Nenhum cliente encontrado.
-        </div>
-      `;
-}
-
-function removeClient(id) {
   if (
     !confirm(
       'Tem certeza de que deseja remover este cliente?'
