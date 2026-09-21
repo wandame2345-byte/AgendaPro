@@ -1250,82 +1250,65 @@ $('clientForm').addEventListener(
   }
 );
 
-function downloadClientPhoto(id) {
+async function downloadClientPhoto(id) {
   const client = clients.find(
     item => item.id === id
   );
 
   if (!client || !client.photo) {
-    alert(
-      'Este cliente não tem foto cadastrada.'
-    );
+    alert('Este cliente não tem foto cadastrada.');
     return;
   }
 
-  const image = new Image();
+  try {
+    const response = await fetch(client.photo, {
+      credentials: 'include',
+      cache: 'no-store'
+    });
 
-  image.crossOrigin = 'anonymous';
+    if (!response.ok) {
+      throw new Error(
+        'A foto não está mais disponível no servidor.'
+      );
+    }
 
-  image.onload = () => {
-    const canvas =
-      document.createElement('canvas');
+    const photoFile = await response.blob();
+    let extension = 'jpg';
 
-    canvas.width = image.naturalWidth;
-    canvas.height = image.naturalHeight;
+    if (photoFile.type === 'image/png') {
+      extension = 'png';
+    } else if (photoFile.type === 'image/webp') {
+      extension = 'webp';
+    } else if (photoFile.type === 'image/gif') {
+      extension = 'gif';
+    }
 
-    const context =
-      canvas.getContext('2d');
+    const clientName = (client.name || 'cliente')
+      .trim()
+      .replace(/[^a-zA-Z0-9À-ÿ_-]+/g, '_');
 
-    context.drawImage(
-      image,
-      0,
-      0
-    );
+    const temporaryUrl =
+      URL.createObjectURL(photoFile);
 
-    canvas.toBlob(
-      blob => {
-        if (!blob) {
-          alert(
-            'Não foi possível gerar o arquivo PNG.'
-          );
-          return;
-        }
+    const link = document.createElement('a');
 
-        const url =
-          URL.createObjectURL(blob);
+    link.href = temporaryUrl;
+    link.download = `${clientName}.${extension}`;
 
-        const link =
-          document.createElement('a');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
 
-        link.href = url;
-
-        link.download =
-          `${
-            (client.name || 'cliente')
-              .trim()
-              .replace(/\s+/g, '_')
-          }.png`;
-
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-
-        URL.revokeObjectURL(url);
-      },
-      'image/png'
-    );
-  };
-
-  image.onerror = () => {
+    setTimeout(() => {
+      URL.revokeObjectURL(temporaryUrl);
+    }, 1000);
+  } catch (error) {
     alert(
-      'Não foi possível carregar a foto para gerar o download.'
+      error.message ||
+      'Não foi possível baixar a foto.'
     );
-  };
-
-  image.src = client.photo;
+  }
 }
-
-function renderClients() {
   const search =
     ($('clientSearch').value || '')
       .toLowerCase();
