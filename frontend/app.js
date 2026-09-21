@@ -1158,18 +1158,22 @@ function renderClients() {
     `;
 }
 
-function removeClient(id) {
+async function removeClient(id) {
   if (!confirm(
-    "Tem certeza de que deseja remover este cliente?"
+    "Remover este cliente da lista? Os agendamentos e valores dos relatórios serão mantidos."
   )) {
     return;
   }
 
-  api(`/api/clients/${id}`, {
-    method: "DELETE"
-  })
-    .then(refreshData)
-    .catch(error => alert(error.message));
+  try {
+    await api(`/api/clients/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    });
+
+    await refreshData();
+  } catch (error) {
+    alert(error.message);
+  }
 }
 
 /* =========================

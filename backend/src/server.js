@@ -638,37 +638,34 @@ app.delete(
   '/api/clients/:id',
   auth,
   asyncHandler(async (req, res) => {
-    const clientId = Number(
-      req.params.id
-    );
+    const clientId = String(req.params.id);
 
-    const hasAppointments =
-      await pool.query(
-        `
-        SELECT 1
-        FROM agendamentos
-        WHERE cliente_id = $1
-        LIMIT 1
-        `,
-        [clientId]
-      );
-
-    if (hasAppointments.rowCount) {
+    if (
+      !/^[1-9]\d*$/.test(clientId) ||
+      BigInt(clientId) > 9223372036854775807n
+    ) {
       return res.status(400).json({
-        error:
-          'Cliente possui histórico de agendamentos e não pode ser excluído.'
+        error: 'Identificador de cliente inválido.'
       });
     }
 
-    await pool.query(
+    // Remove da lista sem apagar agendamentos e relatórios.
+    const result = await pool.query(
       `
       UPDATE clientes
       SET ativo = false,
           updated_at = NOW()
       WHERE id = $1
+      RETURNING id
       `,
       [clientId]
     );
+
+    if (!result.rowCount) {
+      return res.status(404).json({
+        error: 'Cliente não encontrado.'
+      });
+    }
 
     res.json({
       ok: true
