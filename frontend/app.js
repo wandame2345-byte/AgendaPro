@@ -23,9 +23,36 @@ function roleEmail(role){return role==='admin'?'admin@agendapro.local':'funciona
 async function logout(){if(currentUser?.role!=='cliente')await api('/api/auth/logout',{method:'POST'}).catch(()=>{});currentUser=null;$('app').style.display='none';$('clientPage').style.display='none';$('authScreen').style.display='flex';backToRoles()}
 function enterApp(){ $('authScreen').style.display='none'; if(currentUser.role==='cliente'){ $('app').style.display='none';$('clientPage').style.display='block';initClientPage(); } else {$('clientPage').style.display='none';$('app').style.display='flex';initAdminApp()} }
 
+/* =========================
+   NAVEGAÇÃO
+   ========================= */
 function navItemsFor(role){return [{id:'dashboard',label:'🏠 Dashboard',roles:['admin','funcionario']},{id:'agenda',label:'📅 Agenda',roles:['admin','funcionario']},{id:'clientes',label:'👥 Clientes',roles:['admin','funcionario']},{id:'procedimentos',label:'🧾 Procedimentos',roles:['admin']},{id:'relatorios',label:'📊 Relatórios',roles:['admin']},{id:'configuracoes',label:'⚙️ Configurações',roles:['admin','funcionario']}].filter(i=>i.roles.includes(role))}
-function renderNav(){const items=navItemsFor(currentUser.role);document.querySelector('.nav').innerHTML=items.map(it=>`<button data-section="${it.id}">${it.label}</button>`).join('');document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>showSection(b.dataset.section));$('userTag').textContent=currentUser.role==='admin'?'👑 Administrador':'👤 Funcionário';showSection(items[0].id)}
-function showSection(id){const allowed=navItemsFor(currentUser.role).map(i=>i.id);if(!allowed.includes(id))id=allowed[0];document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));$(id).classList.add('active');document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.section===id));renderAll()}
+function renderNav(){
+ const items=navItemsFor(currentUser.role);
+ // "Configurações" não entra na lista principal do menu — ela é renderizada separadamente,
+ // fixada no rodapé da barra lateral, logo acima do botão "Sair".
+ const mainItems=items.filter(i=>i.id!=='configuracoes');
+ document.querySelector('.nav').innerHTML=mainItems.map(it=>`<button data-section="${it.id}">${it.label}</button>`).join('');
+ document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>showSection(b.dataset.section));
+ const configBtn=$('configNavBtn');
+ if(configBtn){
+   const canConfig=items.some(i=>i.id==='configuracoes');
+   configBtn.style.display=canConfig?'':'none';
+   configBtn.onclick=()=>showSection('configuracoes');
+ }
+ $('userTag').textContent=currentUser.role==='admin'?'👑 Administrador':'👤 Funcionário';
+ showSection(mainItems[0].id)
+}
+function showSection(id){
+ const allowed=navItemsFor(currentUser.role).map(i=>i.id);
+ if(!allowed.includes(id))id=allowed[0];
+ document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+ $(id).classList.add('active');
+ document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.section===id));
+ const configBtn=$('configNavBtn');
+ if(configBtn) configBtn.classList.toggle('active',id==='configuracoes');
+ renderAll()
+}
 async function initAdminApp(){renderNav();$('agendaDate').value=localDate();$('date').value=localDate();fillTimes();$('reportDay').value=localDate();$('reportMonth').value=localDate().slice(0,7);const y=new Date().getFullYear();$('reportYear').innerHTML=Array.from({length:7},(_,i)=>`<option>${y-3+i}</option>`).join('');$('reportYear').value=y;await refreshData()}
 async function refreshData(){try{[procedures,clients,appointments]=await Promise.all([api('/api/procedures'),api('/api/clients'),api('/api/appointments')]);fillAllProcedureSelects();renderAll()}catch(e){alert(e.message);if(/sessão|autentic/i.test(e.message))logout()}}
 function fillTimes(){$('time').innerHTML='<option value="">Selecione</option>'+hours.map(h=>`<option>${h}</option>`).join('')}
@@ -56,6 +83,56 @@ function showAppointmentDetails(id){
    `Observação: ${a.note||'-'}`
  );
 }
+
+/* =========================
+   FILTRO DE PERÍODO — DASHBOARD
+   ========================= */
+function periodListAndTotals(start,end){
+ const list=appointments.filter(a=>validSales(a)&&a.date>=start&&a.date<=end).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+ const revenue=list.reduce((s,a)=>s+Number(a.price),0);
+ const count=list.length;
+ return {list,revenue,count,ticket:count?revenue/count:0};
+}
+function renderPeriodTable(list){
+ return list.length?`<table><tr><th>Data</th><th>Hora</th><th>Cliente</th><th>Procedimento</th><th>Valor</th><th>Status</th></tr>${list.map(a=>`<tr><td>${fmtDate(a.date)}</td><td>${a.time}</td><td>${esc(a.name)}</td><td>${esc(a.procedure)}</td><td>${money(a.price)}</td><td><span class="badge ${badge(a.status)}">${a.status}</span></td></tr>`).join('')}</table>`:'<div class="empty">Nenhum atendimento no período selecionado.</div>';
+}
+function applyDashboardFilter(){
+ const start=$('dashFilterStart').value, end=$('dashFilterEnd').value;
+ if(!start||!end) return alert('Selecione a data inicial e a data final.');
+ if(start>end) return alert('A data inicial precisa ser antes (ou igual) da data final.');
+ const r=periodListAndTotals(start,end);
+ $('dashFilterCards').style.display='';
+ $('dashFilterRevenue').textContent=money(r.revenue);
+ $('dashFilterCount').textContent=r.count;
+ $('dashFilterTicket').textContent=money(r.ticket);
+ $('dashFilterTable').innerHTML=renderPeriodTable(r.list);
+}
+function clearDashboardFilter(){
+ $('dashFilterStart').value='';$('dashFilterEnd').value='';
+ $('dashFilterCards').style.display='none';
+ $('dashFilterTable').innerHTML='';
+}
+
+/* =========================
+   FILTRO DE PERÍODO — AGENDA
+   ========================= */
+function applyAgendaFilter(){
+ const start=$('agendaFilterStart').value, end=$('agendaFilterEnd').value;
+ if(!start||!end) return alert('Selecione a data inicial e a data final.');
+ if(start>end) return alert('A data inicial precisa ser antes (ou igual) da data final.');
+ const r=periodListAndTotals(start,end);
+ $('agendaFilterCards').style.display='';
+ $('agendaFilterRevenue').textContent=money(r.revenue);
+ $('agendaFilterCount').textContent=r.count;
+ $('agendaFilterTicket').textContent=money(r.ticket);
+ $('agendaFilterTable').innerHTML=renderPeriodTable(r.list);
+}
+function clearAgendaFilter(){
+ $('agendaFilterStart').value='';$('agendaFilterEnd').value='';
+ $('agendaFilterCards').style.display='none';
+ $('agendaFilterTable').innerHTML='';
+}
+
 function setStatus(id,newStatus){api(`/api/appointments/${id}/status`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:newStatus})}).then(refreshData).catch(e=>alert(e.message))}
 function renderAgenda(){const d=$('agendaDate').value||localDate(),list=appointments.filter(a=>a.date===d).sort((a,b)=>a.time.localeCompare(b.time));$('slots').innerHTML=hours.map(h=>{const a=list.find(x=>x.time===h&&x.status!=='Cancelado');return a?`<div class="slot busy"><strong>${h}</strong>${esc(a.name)}<small>${esc(a.procedure)} • ${money(a.price)}</small></div>`:`<div class="slot free" onclick="openModal('${d}','${h}')"><strong>${h}</strong>Disponível<small>Clique para agendar</small></div>`}).join('');$('dayTable').innerHTML=list.length?`<table><tr><th>Hora</th><th>Cliente</th><th>Foto</th><th>Procedimento</th><th>Valor</th><th>Status</th><th>Obs.</th><th>Ações</th></tr>${list.map(a=>{const c=clients.find(x=>x.phone===a.phone);return `<tr><td><b>${a.time}</b></td><td>${esc(a.name)}<br><small>${esc(a.phone)}</small></td><td>${c?.photo?`<img src="${esc(c.photo)}" class="client-photo">`:'<small style="color:var(--muted)">Sem foto</small>'}</td><td>${esc(a.procedure)}</td><td>${money(a.price)}</td><td><span class="badge ${badge(a.status)}">${a.status}</span></td><td>${esc(a.note||'-')}</td><td><button type="button" class="btn success btn-sm" onclick="setStatus(${a.id},'Atendido')">Concluído</button><button type="button" class="btn danger btn-sm" onclick="setStatus(${a.id},'Cancelado')">Não Concluído</button></td></tr>`}).join('')}</table>`:'<div class="empty">Nenhum agendamento para esta data.</div>'}
 function badge(s){return {'Agendado':'b-agendado','Confirmado':'b-confirmado','Atendido':'b-atendido','Cancelado':'b-cancelado'}[s]||'b-agendado'}
@@ -66,7 +143,38 @@ function closeClientModal(){$('clientModal').classList.remove('show');$('clientF
 $('clientPhoto').addEventListener('change',()=>{const f=$('clientPhoto').files[0];if(!f)return;const r=new FileReader();r.onload=e=>{$('photoPreview').src=e.target.result;$('photoPreview').style.display='block'};r.readAsDataURL(f)})
 if($('clientPhone')) $('clientPhone').addEventListener('input',()=>{$('clientPhone').value=$('clientPhone').value.replace(/\D/g,'')});
 $('clientForm').addEventListener('submit',async e=>{e.preventDefault();try{const f=new FormData();f.append('name',$('clientName').value.trim());f.append('phone',$('clientPhone').value.trim());f.append('note',$('clientNote').value.trim());if($('clientPhoto').files[0])f.append('photo',$('clientPhoto').files[0]);await api('/api/clients',{method:'POST',body:f});closeClientModal();await refreshData();alert('Cliente salvo com sucesso!')}catch(err){alert(err.message)}})
-function renderClients(){const q=($('clientSearch').value||'').toLowerCase();const cs=clients.filter(c=>(c.name+c.phone).toLowerCase().includes(q));$('clientTable').innerHTML=cs.length?`<table><tr><th>Cliente</th><th>Contato</th><th>Atendimentos</th><th>Total</th><th>Último atendimento</th><th>Observação</th><th>Ações</th></tr>${cs.map(c=>`<tr><td>${c.photo?`<img class="client-photo" src="${esc(c.photo)}">`:''}<b>${esc(c.name)}</b></td><td>${esc(c.phone)}</td><td>${c.count}</td><td>${money(c.total)}</td><td>${c.last?fmtDate(c.last):'—'}</td><td>${esc(c.note||'-')}</td><td><button type="button" class="btn danger btn-sm" onclick="removeClient(${c.id})">Remover</button></td></tr>`).join('')}</table>`:'<div class="empty">Nenhum cliente encontrado.</div>'}
+
+/* =========================
+   BAIXAR FOTO DO CLIENTE (PNG)
+   ========================= */
+function downloadClientPhoto(id){
+ const c=clients.find(x=>x.id===id);
+ if(!c||!c.photo) return alert('Este cliente não tem foto cadastrada.');
+ const img=new Image();
+ img.crossOrigin='anonymous';
+ img.onload=()=>{
+   const canvas=document.createElement('canvas');
+   canvas.width=img.naturalWidth;
+   canvas.height=img.naturalHeight;
+   const ctx=canvas.getContext('2d');
+   ctx.drawImage(img,0,0);
+   canvas.toBlob(blob=>{
+     if(!blob) return alert('Não foi possível gerar o arquivo PNG.');
+     const url=URL.createObjectURL(blob);
+     const a=document.createElement('a');
+     a.href=url;
+     a.download=`${(c.name||'cliente').trim().replace(/\s+/g,'_')}.png`;
+     document.body.appendChild(a);
+     a.click();
+     a.remove();
+     URL.revokeObjectURL(url);
+   },'image/png');
+ };
+ img.onerror=()=>alert('Não foi possível carregar a foto para gerar o download.');
+ img.src=c.photo;
+}
+
+function renderClients(){const q=($('clientSearch').value||'').toLowerCase();const cs=clients.filter(c=>(c.name+c.phone).toLowerCase().includes(q));$('clientTable').innerHTML=cs.length?`<table><tr><th>Cliente</th><th>Contato</th><th>Atendimentos</th><th>Total</th><th>Último atendimento</th><th>Observação</th><th>Ações</th></tr>${cs.map(c=>`<tr><td>${c.photo?`<img class="client-photo" src="${esc(c.photo)}">`:''}<b>${esc(c.name)}</b></td><td>${esc(c.phone)}</td><td>${c.count}</td><td>${money(c.total)}</td><td>${c.last?fmtDate(c.last):'—'}</td><td>${esc(c.note||'-')}</td><td>${c.photo?`<button type="button" class="btn secondary btn-sm" onclick="downloadClientPhoto(${c.id})">⬇️ Baixar foto</button>`:''}<button type="button" class="btn danger btn-sm" onclick="removeClient(${c.id})">Remover</button></td></tr>`).join('')}</table>`:'<div class="empty">Nenhum cliente encontrado.</div>'}
 function removeClient(id){if(!confirm('Tem certeza de que deseja remover este cliente?'))return;api(`/api/clients/${id}`,{method:'DELETE'}).then(refreshData).catch(e=>alert(e.message))}
 async function addProcedure(){const name=$('procName').value.trim(),price=Number($('procPrice').value)||0;if(!name)return alert('Informe o nome do procedimento.');try{await api('/api/procedures',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,price})});$('procName').value='';$('procPrice').value='';await refreshData()}catch(e){alert(e.message)}}
 function removeProcedure(id){if(!confirm('Remover este procedimento?'))return;api(`/api/procedures/${id}`,{method:'DELETE'}).then(refreshData).catch(e=>alert(e.message))}

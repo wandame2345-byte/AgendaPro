@@ -41,7 +41,7 @@ services:
       - "host.docker.internal:host-gateway"
 
     environment:
-      NODE_ENV: production
+      NODE_ENV: development
       PORT: "3000"
 
       DATABASE_URL: "postgresql://${POSTGRES_USER:-agendapro}:${POSTGRES_PASSWORD}@host.docker.internal:5432/${POSTGRES_DB:-agendapro}"
