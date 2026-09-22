@@ -175,6 +175,300 @@ function publicAppointment(appointment) {
 }
 
 /* =========================================================
+   HORÁRIOS DE FUNCIONAMENTO
+========================================================= */
+
+function defaultOpeningHours() {
+  return {
+    interval: 60,
+    days: Array.from({ length: 7 }, () => ({
+      open: true,
+      start: '08:00',
+      end: '20:00',
+      breakStart: '',
+      breakEnd: ''
+    }))
+  };
+}
+
+function openingMinutes(value) {
+  if (
+    typeof value !== 'string' ||
+    !/^([01]\d|2[0-3]):[0-5]\d$/.test(value)
+  ) {
+    return null;
+  }
+
+  const [hour, minute] = value.split(':').map(Number);
+
+  return hour * 60 + minute;
+}
+
+function openingWeekday(date) {
+  if (
+    typeof date !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(date)
+  ) {
+    return null;
+  }
+
+  const value = new Date(date + 'T12:00:00Z');
+
+  if (
+    Number.isNaN(value.getTime()) ||
+    value.toISOString().slice(0, 10) !== date
+  ) {
+    return null;
+  }
+
+  return value.getUTCDay();
+}
+
+function openingSlots(settings, date) {
+  const weekday = openingWeekday(date);
+
+  if (weekday === null) {
+    return [];
+  }
+
+  const day = settings.days[weekday];
+
+  if (!day.open) {
+    return [];
+  }
+
+  const start = openingMinutes(day.start);
+  const end = openingMinutes(day.end);
+  const pauseStart = openingMinutes(day.breakStart);
+  const pauseEnd = openingMinutes(day.breakEnd);
+
+  const ranges =
+    pauseStart === null
+      ? [[start, end]]
+      : [
+          [start, pauseStart],
+          [pauseEnd, end]
+        ];
+
+  const slots = [];
+
+  for (const [from, until] of ranges) {
+    for (
+      let minute = from;
+      minute + settings.interval <= until;
+      minute += settings.interval
+    ) {
+      const hourText = String(
+        Math.floor(minute / 60)
+      ).padStart(2, '0');
+
+      const minuteText = String(
+        minute % 60
+      ).padStart(2, '0');
+
+      slots.push(`${hourText}:${minuteText}`);
+    }
+  }
+
+  return slots;
+}
+
+function validateOpeningHours(value) {
+  const fail = (message) => {
+    const error = new Error(message);
+    error.status = 400;
+    throw error;
+  };
+
+  if (
+    !value ||
+    !Number.isInteger(value.interval) ||
+    value.interval < 5 ||
+    value.interval > 240
+  ) {
+    fail(
+      'O intervalo deve ser um número inteiro de 5 a 240 minutos.'
+    );
+  }
+
+  if (
+    !Array.isArray(value.days) ||
+    value.days.length !== 7
+  ) {
+    fail('Configure os sete dias da semana.');
+  }
+
+  const labels = [
+    'Domingo',
+    'Segunda-feira',
+    'Terça-feira',
+    'Quarta-feira',
+    'Quinta-feira',
+    'Sexta-feira',
+    'Sábado'
+  ];
+
+  const days = value.days.map((day, index) => {
+    if (!day || typeof day.open !== 'boolean') {
+      fail(
+        `${labels[index]}: informe se o dia está aberto.`
+      );
+    }
+
+    const start = openingMinutes(day.start);
+    const end = openingMinutes(day.end);
+
+    if (start === null || end === null) {
+      fail(
+        `${labels[index]}: informe horários válidos.`
+      );
+    }
+
+    const breakStart = day.breakStart ?? '';
+    const breakEnd = day.breakEnd ?? '';
+
+    const pauseStart = openingMinutes(breakStart);
+    const pauseEnd = openingMinutes(breakEnd);
+
+    if (
+      (breakStart !== '' || breakEnd !== '') &&
+      (pauseStart === null || pauseEnd === null)
+    ) {
+      fail(
+        `${labels[index]}: preencha o início e o fim da pausa, ou deixe ambos vazios.`
+      );
+    }
+
+    if (day.open && end <= start) {
+      fail(
+        `${labels[index]}: o fechamento deve ser depois da abertura, no mesmo dia.`
+      );
+    }
+
+    if (
+      day.open &&
+      pauseStart !== null &&
+      !(
+        start < pauseStart &&
+        pauseStart < pauseEnd &&
+        pauseEnd < end
+      )
+    ) {
+      fail(
+        `${labels[index]}: a pausa deve começar e terminar dentro do expediente.`
+      );
+    }
+
+    const normalized = {
+      open: day.open,
+      start: day.start,
+      end: day.end,
+      breakStart,
+      breakEnd
+    };
+
+    if (day.open) {
+      const ranges =
+        pauseStart === null
+          ? [[start, end]]
+          : [
+              [start, pauseStart],
+              [pauseEnd, end]
+            ];
+
+      if (
+        !ranges.some(
+          ([from, until]) =>
+            until - from >= value.interval
+        )
+      ) {
+        fail(
+          `${labels[index]}: o expediente precisa comportar pelo menos um intervalo completo.`
+        );
+      }
+    }
+
+    return normalized;
+  });
+
+  return {
+    interval: value.interval,
+    days
+  };
+}
+
+async function readOpeningHours(
+  database = pool,
+  lock = false
+) {
+  const result = await database.query(
+    'SELECT dados FROM configuracoes_agenda WHERE id = 1' +
+    (lock ? ' FOR SHARE' : '')
+  );
+
+  if (!result.rowCount) {
+    throw new Error(
+      'Horários de funcionamento não configurados.'
+    );
+  }
+
+  return result.rows[0].dados;
+}
+
+async function assertOpeningSlot(
+  database,
+  date,
+  time
+) {
+  const settings = await readOpeningHours(
+    database,
+    true
+  );
+
+  if (
+    openingWeekday(date) === null ||
+    !openingSlots(settings, date).includes(time)
+  ) {
+    const error = new Error(
+      'Horário fora do funcionamento configurado. Atualize a agenda e escolha um horário disponível.'
+    );
+
+    error.status = 400;
+
+    throw error;
+  }
+}
+
+app.get(
+  '/api/opening-hours',
+  asyncHandler(async (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await readOpeningHours());
+  })
+);
+
+app.put(
+  '/api/opening-hours',
+  auth,
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const settings = validateOpeningHours(req.body);
+
+    await pool.query(
+      `
+      UPDATE configuracoes_agenda
+      SET dados = $1::jsonb,
+          updated_at = NOW()
+      WHERE id = 1
+      `,
+      [JSON.stringify(settings)]
+    );
+
+    res.json(settings);
+  })
+);
+
+/* =========================================================
    UPLOAD DE FOTOS
 ========================================================= */
 
@@ -184,7 +478,9 @@ const storage = multer.diskStorage({
   },
 
   filename: (_req, file, callback) => {
-    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    const ext =
+      path.extname(file.originalname).toLowerCase() ||
+      '.jpg';
 
     const safeName =
       `${Date.now()}-` +
@@ -203,13 +499,17 @@ const upload = multer({
   },
 
   fileFilter: (_req, file, callback) => {
-    if (/^image\/(jpeg|png|webp|gif)$/.test(file.mimetype)) {
+    if (
+      /^image\/(jpeg|png|webp|gif)$/.test(file.mimetype)
+    ) {
       callback(null, true);
       return;
     }
 
     callback(
-      new Error('A foto deve ser JPG, PNG, WEBP ou GIF.')
+      new Error(
+        'A foto deve ser JPG, PNG, WEBP ou GIF.'
+      )
     );
   }
 });
@@ -256,7 +556,9 @@ app.post(
       });
     }
 
-    if (!['admin', 'funcionario'].includes(role)) {
+    if (
+      !['admin', 'funcionario'].includes(role)
+    ) {
       return res.status(400).json({
         error: 'Perfil inválido.'
       });
@@ -357,7 +659,8 @@ app.put(
 
     if (String(newPassword).length < 6) {
       return res.status(400).json({
-        error: 'A nova senha deve ter pelo menos 6 caracteres.'
+        error:
+          'A nova senha deve ter pelo menos 6 caracteres.'
       });
     }
 
@@ -451,7 +754,9 @@ app.post(
       price
     } = req.body || {};
 
-    const procedureName = String(name || '').trim();
+    const procedureName = String(
+      name || ''
+    ).trim();
 
     if (!procedureName) {
       return res.status(400).json({
@@ -824,6 +1129,12 @@ app.post(
     try {
       await client.query('BEGIN');
 
+      await assertOpeningSlot(
+        client,
+        date,
+        time
+      );
+
       const customer =
         await upsertClient(
           client,
@@ -959,13 +1270,14 @@ app.get(
       req.query.date || ''
     );
 
-    if (
-      !/^\d{4}-\d{2}-\d{2}$/.test(date)
-    ) {
+    if (openingWeekday(date) === null) {
       return res.status(400).json({
         error: 'Data inválida.'
       });
     }
+
+    const settings =
+      await readOpeningHours();
 
     const result = await pool.query(
       `
@@ -978,8 +1290,11 @@ app.get(
       [date]
     );
 
+    res.set('Cache-Control', 'no-store');
+
     res.json({
       date,
+      slots: openingSlots(settings, date),
       taken: result.rows.map(
         (row) =>
           String(row.hora).slice(0, 5)
@@ -1040,6 +1355,12 @@ app.post(
 
     try {
       await client.query('BEGIN');
+
+      await assertOpeningSlot(
+        client,
+        date,
+        time
+      );
 
       const customer =
         await upsertClient(
@@ -1760,6 +2081,23 @@ async function ensureSchema() {
     );
 
   await pool.query(schema);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS configuracoes_agenda (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      dados JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(
+    `
+    INSERT INTO configuracoes_agenda(id, dados)
+    VALUES(1, $1::jsonb)
+    ON CONFLICT(id) DO NOTHING
+    `,
+    [JSON.stringify(defaultOpeningHours())]
+  );
 
   console.log(
     '✅ Banco de dados verificado/preparado.'

@@ -1,8 +1,5 @@
-const hours = [
-  "08:00", "09:00", "10:00", "11:00",
-  "12:00", "13:00", "14:00", "15:00",
-  "16:00", "17:00", "18:00", "19:00"
-];
+let openingHours = null;
+let openingHoursDirty = false;
 
 let currentUser = null;
 let pendingRole = null;
@@ -10,6 +7,7 @@ let procedures = [];
 let clients = [];
 let appointments = [];
 let selectedSlot = "";
+let clientSlotsRequestId = 0;
 
 const $ = id => document.getElementById(id);
 
@@ -51,7 +49,6 @@ const esc = value =>
     })[character]
   );
 
-// Mantém os IDs como texto, inclusive nos botões da tabela.
 const idArgument = value =>
   esc(JSON.stringify(String(value)));
 
@@ -77,6 +74,408 @@ async function api(url, options = {}) {
   }
 
   return data;
+}
+
+/* =========================
+   HORÁRIOS DE FUNCIONAMENTO
+========================= */
+
+function openingSlots(settings, date) {
+  if (!settings || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return [];
+  }
+
+  const value = new Date(date + "T12:00:00Z");
+
+  if (
+    Number.isNaN(value.getTime()) ||
+    value.toISOString().slice(0, 10) !== date
+  ) {
+    return [];
+  }
+
+  const day = settings.days[value.getUTCDay()];
+
+  if (!day.open) return [];
+
+  const minutes = time => {
+    const [hours, mins] = time.split(":").map(Number);
+    return hours * 60 + mins;
+  };
+
+  const start = minutes(day.start);
+  const end = minutes(day.end);
+
+  const ranges = day.breakStart
+    ? [
+        [start, minutes(day.breakStart)],
+        [minutes(day.breakEnd), end]
+      ]
+    : [[start, end]];
+
+  const slots = [];
+
+  for (const [from, until] of ranges) {
+    for (
+      let minute = from;
+      minute + settings.interval <= until;
+      minute += settings.interval
+    ) {
+      const hourText = String(
+        Math.floor(minute / 60)
+      ).padStart(2, "0");
+
+      const minuteText = String(
+        minute % 60
+      ).padStart(2, "0");
+
+      slots.push(`${hourText}:${minuteText}`);
+    }
+  }
+
+  return slots;
+}
+
+function mountOpeningHoursPanel() {
+  let panel = $("openingHoursPanel");
+
+  if (!panel) {
+    const style = document.createElement("style");
+
+    style.textContent = `
+      #openingHoursPanel {
+        margin-bottom: 22px;
+      }
+
+      #openingHoursPanel summary {
+        cursor: pointer;
+        font-weight: 700;
+        padding: 4px 0;
+      }
+
+      #openingHoursPanel p {
+        color: var(--muted);
+        margin: 14px 0;
+      }
+
+      #openingHoursPanel .opening-day {
+        display: grid;
+        grid-template-columns: 170px minmax(0, 1fr);
+        gap: 16px;
+        align-items: center;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--border, #f1d7dc);
+      }
+
+      #openingHoursPanel .opening-day-toggle {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+
+      #openingHoursPanel input[type=checkbox] {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--primary, #d77f98);
+      }
+
+      #openingHoursPanel .opening-times {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        border: 0;
+        padding: 0;
+        margin: 0;
+        min-width: 0;
+      }
+
+      #openingHoursPanel .opening-times:disabled {
+        opacity: .5;
+      }
+
+      #openingHoursPanel label {
+        font-size: 13px;
+      }
+
+      #openingHoursPanel .opening-times label {
+        display: grid;
+        gap: 5px;
+        min-width: 0;
+      }
+
+      #openingHoursPanel input[type=time] {
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+      }
+
+      #openingHoursPanel .opening-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      #openingHoursPanel .opening-interval {
+        display: grid;
+        gap: 6px;
+      }
+
+      #openingHoursPanel input[type=number] {
+        width: 120px;
+      }
+
+      #openingHoursMessage {
+        min-height: 20px;
+        margin-top: 12px;
+      }
+
+      @media(max-width: 750px) {
+        #openingHoursPanel .opening-day {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+
+        #openingHoursPanel .opening-times {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+    `;
+
+    document.head.appendChild(style);
+
+    panel = document.createElement("details");
+    panel.id = "openingHoursPanel";
+    panel.className = "panel";
+
+    panel.innerHTML = `
+      <summary>⚙️ Horários de funcionamento</summary>
+
+      <p>
+        Marque os dias abertos e ajuste o expediente.
+        Para trabalhar sem pausa, deixe os dois campos
+        de pausa vazios.
+      </p>
+
+      <form id="openingHoursForm">
+        <div id="openingHoursDays">
+          Carregando horários...
+        </div>
+
+        <div class="opening-actions">
+          <label
+            class="opening-interval"
+            for="openingInterval"
+          >
+            Intervalo dos agendamentos (minutos)
+            <input
+              id="openingInterval"
+              type="number"
+              min="5"
+              max="240"
+              step="1"
+              required
+              value="60"
+            >
+          </label>
+
+          <button
+            id="saveOpeningHours"
+            type="submit"
+            class="btn primary"
+            disabled
+          >
+            Salvar horários
+          </button>
+        </div>
+
+        <p>
+          Os horários são gerados com o intervalo escolhido
+          e precisam caber antes da pausa ou do fechamento.
+          Os agendamentos existentes serão mantidos.
+        </p>
+
+        <div
+          id="openingHoursMessage"
+          role="status"
+          aria-live="polite"
+        ></div>
+      </form>
+    `;
+
+    $("agenda")
+      .querySelector(".top")
+      .insertAdjacentElement("afterend", panel);
+
+    $("openingHoursForm").addEventListener(
+      "submit",
+      saveOpeningHours
+    );
+
+    $("openingHoursForm").addEventListener(
+      "input",
+      event => {
+        openingHoursDirty = true;
+
+        $("openingHoursMessage").textContent =
+          "Alterações ainda não salvas.";
+
+        if (event.target.dataset.openingDay !== undefined) {
+          $(
+            "openingTimes" + event.target.dataset.openingDay
+          ).disabled = !event.target.checked;
+        }
+      }
+    );
+  }
+
+  panel.hidden = currentUser?.role !== "admin";
+}
+
+function renderOpeningHoursEditor() {
+  if (
+    !$("openingHoursPanel") ||
+    currentUser?.role !== "admin" ||
+    !openingHours ||
+    openingHoursDirty
+  ) {
+    return;
+  }
+
+  const labels = [
+    "Domingo",
+    "Segunda-feira",
+    "Terça-feira",
+    "Quarta-feira",
+    "Quinta-feira",
+    "Sexta-feira",
+    "Sábado"
+  ];
+
+  $("openingHoursDays").innerHTML =
+    [1, 2, 3, 4, 5, 6, 0].map(index => {
+      const day = openingHours.days[index];
+
+      return `
+        <div class="opening-day">
+          <label class="opening-day-toggle">
+            <input
+              type="checkbox"
+              id="openingOpen${index}"
+              data-opening-day="${index}"
+              ${day.open ? "checked" : ""}
+            >
+            ${labels[index]}
+          </label>
+
+          <fieldset
+            class="opening-times"
+            id="openingTimes${index}"
+            aria-label="Expediente de ${labels[index]}"
+            ${day.open ? "" : "disabled"}
+          >
+            <label>
+              Abertura
+              <input
+                id="openingStart${index}"
+                type="time"
+                required
+                value="${esc(day.start)}"
+              >
+            </label>
+
+            <label>
+              Fechamento
+              <input
+                id="openingEnd${index}"
+                type="time"
+                required
+                value="${esc(day.end)}"
+              >
+            </label>
+
+            <label>
+              Início da pausa
+              <input
+                id="openingBreakStart${index}"
+                type="time"
+                value="${esc(day.breakStart)}"
+              >
+            </label>
+
+            <label>
+              Fim da pausa
+              <input
+                id="openingBreakEnd${index}"
+                type="time"
+                value="${esc(day.breakEnd)}"
+              >
+            </label>
+          </fieldset>
+        </div>
+      `;
+    }).join("");
+
+  $("openingInterval").value = openingHours.interval;
+  $("saveOpeningHours").disabled = false;
+}
+
+async function saveOpeningHours(event) {
+  event.preventDefault();
+
+  const button = $("saveOpeningHours");
+
+  if (
+    button.disabled ||
+    currentUser?.role !== "admin"
+  ) {
+    return;
+  }
+
+  const message = $("openingHoursMessage");
+
+  const settings = {
+    interval: Number($("openingInterval").value),
+
+    days: Array.from({ length: 7 }, (_, index) => ({
+      open: $("openingOpen" + index).checked,
+      start: $("openingStart" + index).value,
+      end: $("openingEnd" + index).value,
+      breakStart: $("openingBreakStart" + index).value,
+      breakEnd: $("openingBreakEnd" + index).value
+    }))
+  };
+
+  button.disabled = true;
+  button.textContent = "Salvando...";
+  message.textContent = "";
+
+  try {
+    openingHours = await api("/api/opening-hours", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(settings)
+    });
+
+    openingHoursDirty = false;
+
+    renderOpeningHoursEditor();
+    fillTimes();
+    renderAll();
+
+    message.style.color = "var(--success)";
+    message.textContent =
+      "Horários salvos! A agenda e as novas reservas já usam essa configuração.";
+  } catch (error) {
+    message.style.color = "var(--danger)";
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = "Salvar horários";
+  }
 }
 
 /* =========================
@@ -150,6 +549,7 @@ async function logout() {
   }
 
   currentUser = null;
+  openingHoursDirty = false;
 
   $("app").style.display = "none";
   $("clientPage").style.display = "none";
@@ -292,6 +692,7 @@ function showSection(id) {
 ========================= */
 
 async function initAdminApp() {
+  mountOpeningHoursPanel();
   renderNav();
 
   if ($("agendaDate")) {
@@ -314,16 +715,14 @@ async function initAdminApp() {
 
 async function refreshData() {
   try {
-    [procedures, clients, appointments] =
+    [procedures, clients, appointments, openingHours] =
       await Promise.all([
         api("/api/procedures"),
         api("/api/clients"),
-        api("/api/appointments")
+        api("/api/appointments"),
+        api("/api/opening-hours")
       ]);
 
-    // Padroniza as datas e os horários recebidos da API.
-    // Exemplo: 2026-09-21T00:00:00.000Z -> 2026-09-21
-    // Exemplo: 08:00:00 -> 08:00
     appointments = appointments.map(appointment => ({
       ...appointment,
       date: String(appointment.date || "").slice(0, 10),
@@ -331,6 +730,8 @@ async function refreshData() {
     }));
 
     fillAllProcedureSelects();
+    fillTimes();
+    renderOpeningHoursEditor();
     renderAll();
   } catch (error) {
     alert(error.message);
@@ -342,16 +743,45 @@ async function refreshData() {
 }
 
 function fillTimes() {
-  $("time").innerHTML =
-    '<option value="">Selecione</option>' +
-    hours.map(hour =>
-      `<option>${hour}</option>`
-    ).join("");
+  const select = $("time");
+  const previous = select.value;
+  const date = $("date").value || localDate();
+
+  const available = openingSlots(
+    openingHours,
+    date
+  ).filter(hour =>
+    !appointments.some(
+      item =>
+        item.date === date &&
+        item.time === hour &&
+        item.status !== "Cancelado"
+    )
+  );
+
+  select.innerHTML =
+    '<option value="">' +
+    (
+      available.length
+        ? "Selecione"
+        : "Nenhum horário disponível"
+    ) +
+    "</option>" +
+    available.map(hour => `<option>${hour}</option>`).join("");
+
+  select.value = available.includes(previous)
+    ? previous
+    : "";
 }
+
+$("date").addEventListener("change", fillTimes);
 
 function openModal(date = localDate(), time = "") {
   $("modal").classList.add("show");
   $("date").value = date;
+
+  fillTimes();
+
   $("time").value = time;
 
   fillAllProcedureSelects();
@@ -529,7 +959,10 @@ function renderDashboard() {
   $("monthRevenue").textContent = money(month.revenue);
   $("monthCount").textContent = `${month.count} atendimento(s)`;
 
-  $("freeCount").textContent = hours.filter(
+  $("freeCount").textContent = openingSlots(
+    openingHours,
+    today
+  ).filter(
     hour => !appointments.some(
       appointment =>
         appointment.date === today &&
@@ -804,7 +1237,12 @@ function renderAgenda() {
         first.time.localeCompare(second.time)
     );
 
-  $("slots").innerHTML = hours.map(hour => {
+  const dayHours = openingSlots(
+    openingHours,
+    selectedDate
+  );
+
+  $("slots").innerHTML = dayHours.map(hour => {
     const appointment = list.find(
       item =>
         item.time === hour &&
@@ -834,7 +1272,15 @@ function renderAgenda() {
         <small>Clique para agendar</small>
       </div>
     `;
-  }).join("");
+  }).join("") || `
+    <div class="empty">
+      ${
+        openingHours
+          ? "Sem expediente nesta data."
+          : "Carregando horários..."
+      }
+    </div>
+  `;
 
   $("dayTable").innerHTML = list.length
     ? `
@@ -1008,7 +1454,6 @@ $("clientForm").addEventListener("submit", async event => {
   }
 });
 
-// Baixa o arquivo original, sem transformar a foto em PNG.
 async function downloadClientPhoto(id) {
   const client = clients.find(
     item => String(item.id) === String(id)
@@ -1498,7 +1943,10 @@ function clearPasswordForm() {
 
 async function initClientPage() {
   try {
-    procedures = await api("/api/procedures");
+    [procedures, openingHours] = await Promise.all([
+      api("/api/procedures"),
+      api("/api/opening-hours")
+    ]);
   } catch (error) {
     alert(error.message);
     return;
@@ -1522,10 +1970,22 @@ $("cbDate").addEventListener("change", renderClientSlots);
 async function renderClientSlots() {
   const date = $("cbDate").value || localDate();
 
+  selectedSlot = "";
+
+  $("cbSlots").innerHTML = `
+    <div class="empty">
+      Carregando horários...
+    </div>
+  `;
+
+  const requestId = ++clientSlotsRequestId;
+
   try {
     const data = await api(
       "/api/public/slots?date=" + encodeURIComponent(date)
     );
+
+    if (requestId !== clientSlotsRequestId) return;
 
     const taken = new Set(
       (data.taken || []).map(
@@ -1535,7 +1995,7 @@ async function renderClientSlots() {
 
     selectedSlot = "";
 
-    $("cbSlots").innerHTML = hours.map(hour => {
+    $("cbSlots").innerHTML = (data.slots || []).map(hour => {
       if (taken.has(hour)) {
         return `
           <div class="slot busy">
@@ -1555,8 +2015,21 @@ async function renderClientSlots() {
           Disponível
         </div>
       `;
-    }).join("");
+    }).join("") || `
+      <div class="empty">
+        Sem expediente nesta data. Escolha outro dia.
+      </div>
+    `;
   } catch (error) {
+    if (requestId !== clientSlotsRequestId) return;
+
+    $("cbSlots").innerHTML = `
+      <div class="empty">
+        Não foi possível carregar os horários.
+        Selecione a data novamente.
+      </div>
+    `;
+
     alert(error.message);
   }
 }
