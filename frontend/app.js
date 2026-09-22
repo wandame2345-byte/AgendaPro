@@ -77,7 +77,7 @@ async function api(url, options = {}) {
 }
 
 /* =========================
-   HORÁRIOS DE ATENDIMENTO
+   HORÁRIOS DISPONÍVEIS
 ========================= */
 
 function openingSlots(settings, date) {
@@ -150,14 +150,16 @@ function mountOpeningHoursPanel() {
     const style = document.createElement("style");
 
     style.textContent = `
+      #editAvailableHours {
+        margin-bottom: 18px;
+      }
+
       #openingHoursPanel {
         margin-bottom: 22px;
       }
 
-      #openingHoursPanel summary {
-        cursor: pointer;
-        font-weight: 700;
-        padding: 4px 0;
+      #openingHoursPanel[hidden] {
+        display: none !important;
       }
 
       #openingHoursPanel p {
@@ -211,16 +213,35 @@ function mountOpeningHoursPanel() {
 
     document.head.appendChild(style);
 
-    panel = document.createElement("details");
+    const editButton = document.createElement("button");
+
+    editButton.id = "editAvailableHours";
+    editButton.type = "button";
+    editButton.className = "btn primary";
+
+    editButton.textContent =
+      "✏️ Alterar horários disponíveis";
+
+    editButton.setAttribute(
+      "aria-controls",
+      "openingHoursPanel"
+    );
+
+    editButton.setAttribute(
+      "aria-expanded",
+      "false"
+    );
+
+    panel = document.createElement("div");
     panel.id = "openingHoursPanel";
     panel.className = "panel";
+    panel.hidden = true;
 
     panel.innerHTML = `
-      <summary>⚙️ Horários de atendimento</summary>
-
       <p>
-        Altere os horários abaixo ou adicione e remova horários.
-        A lista se repete todos os dias até você salvar uma nova alteração.
+        Clique em cada horário para mudar a hora e os minutos.
+        Adicione ou remova horários e clique em Salvar horários
+        para atualizar os quadrinhos da agenda.
       </p>
 
       <form id="openingHoursForm">
@@ -249,10 +270,9 @@ function mountOpeningHoursPanel() {
         </div>
 
         <p>
-          As alterações valem para novas reservas.
-          Os agendamentos já feitos continuam na lista de atendimentos.
-          Se remover todos os horários e salvar,
-          nenhuma nova reserva ficará disponível.
+          A lista se repete todos os dias até você alterá-la novamente.
+          Os agendamentos já feitos serão mantidos.
+          Salvar uma lista vazia desativa os horários para novas reservas.
         </p>
 
         <div
@@ -265,7 +285,29 @@ function mountOpeningHoursPanel() {
 
     $("agenda")
       .querySelector(".top")
-      .insertAdjacentElement("afterend", panel);
+      .insertAdjacentElement("afterend", editButton);
+
+    editButton.insertAdjacentElement(
+      "afterend",
+      panel
+    );
+
+    editButton.addEventListener("click", () => {
+      panel.hidden = !panel.hidden;
+
+      editButton.setAttribute(
+        "aria-expanded",
+        String(!panel.hidden)
+      );
+
+      editButton.textContent = panel.hidden
+        ? "✏️ Alterar horários disponíveis"
+        : "Fechar edição dos horários";
+
+      if (!panel.hidden) {
+        renderOpeningHoursEditor();
+      }
+    });
 
     $("openingHoursForm").addEventListener(
       "submit",
@@ -288,7 +330,18 @@ function mountOpeningHoursPanel() {
     });
   }
 
-  panel.hidden = currentUser?.role !== "admin";
+  $("editAvailableHours").hidden =
+    currentUser?.role !== "admin";
+
+  panel.hidden = true;
+
+  $("editAvailableHours").setAttribute(
+    "aria-expanded",
+    "false"
+  );
+
+  $("editAvailableHours").textContent =
+    "✏️ Alterar horários disponíveis";
 }
 
 function markAttendanceHoursDirty() {
@@ -306,7 +359,7 @@ function appendAttendanceTime(time) {
 
   row.innerHTML = `
     <label>
-      Horário de atendimento
+      Horário disponível
       <input
         type="time"
         step="60"
