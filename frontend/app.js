@@ -77,7 +77,7 @@ async function api(url, options = {}) {
 }
 
 /* =========================
-   HORÁRIOS DE FUNCIONAMENTO
+   HORÁRIOS DE ATENDIMENTO
 ========================= */
 
 function openingSlots(settings, date) {
@@ -94,6 +94,13 @@ function openingSlots(settings, date) {
     return [];
   }
 
+  // A lista personalizada é a mesma em todos os dias.
+  if (Array.isArray(settings.slots)) {
+    return [...settings.slots];
+  }
+
+  // Compatibilidade com a configuração anterior,
+  // até salvar a nova lista de horários.
   const day = settings.days[value.getUTCDay()];
 
   if (!day.open) return [];
@@ -158,48 +165,28 @@ function mountOpeningHoursPanel() {
         margin: 14px 0;
       }
 
-      #openingHoursPanel .opening-day {
+      #openingHoursDays {
         display: grid;
-        grid-template-columns: 170px minmax(0, 1fr);
-        gap: 16px;
-        align-items: center;
-        padding: 12px 0;
-        border-bottom: 1px solid var(--border, #f1d7dc);
-      }
-
-      #openingHoursPanel .opening-day-toggle {
-        display: flex;
-        align-items: center;
-        gap: 9px;
-      }
-
-      #openingHoursPanel input[type=checkbox] {
-        width: 18px;
-        height: 18px;
-        accent-color: var(--primary, #d77f98);
-      }
-
-      #openingHoursPanel .opening-times {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(
+          auto-fit,
+          minmax(220px, 1fr)
+        );
         gap: 12px;
-        border: 0;
-        padding: 0;
-        margin: 0;
-        min-width: 0;
       }
 
-      #openingHoursPanel .opening-times:disabled {
-        opacity: .5;
+      #openingHoursPanel .attendance-row {
+        display: flex;
+        align-items: end;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid var(--border, #f1d7dc);
+        border-radius: 10px;
       }
 
-      #openingHoursPanel label {
-        font-size: 13px;
-      }
-
-      #openingHoursPanel .opening-times label {
+      #openingHoursPanel .attendance-row label {
         display: grid;
-        gap: 5px;
+        gap: 6px;
+        flex: 1;
         min-width: 0;
       }
 
@@ -212,34 +199,13 @@ function mountOpeningHoursPanel() {
       #openingHoursPanel .opening-actions {
         display: flex;
         flex-wrap: wrap;
-        align-items: end;
-        gap: 16px;
+        gap: 12px;
         margin-top: 18px;
-      }
-
-      #openingHoursPanel .opening-interval {
-        display: grid;
-        gap: 6px;
-      }
-
-      #openingHoursPanel input[type=number] {
-        width: 120px;
       }
 
       #openingHoursMessage {
         min-height: 20px;
         margin-top: 12px;
-      }
-
-      @media(max-width: 750px) {
-        #openingHoursPanel .opening-day {
-          grid-template-columns: 1fr;
-          gap: 10px;
-        }
-
-        #openingHoursPanel .opening-times {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
       }
     `;
 
@@ -250,12 +216,11 @@ function mountOpeningHoursPanel() {
     panel.className = "panel";
 
     panel.innerHTML = `
-      <summary>⚙️ Horários de funcionamento</summary>
+      <summary>⚙️ Horários de atendimento</summary>
 
       <p>
-        Marque os dias abertos e ajuste o expediente.
-        Para trabalhar sem pausa, deixe os dois campos
-        de pausa vazios.
+        Altere os horários abaixo ou adicione e remova horários.
+        A lista se repete todos os dias até você salvar uma nova alteração.
       </p>
 
       <form id="openingHoursForm">
@@ -264,21 +229,14 @@ function mountOpeningHoursPanel() {
         </div>
 
         <div class="opening-actions">
-          <label
-            class="opening-interval"
-            for="openingInterval"
+          <button
+            id="addAttendanceTime"
+            type="button"
+            class="btn secondary"
+            disabled
           >
-            Intervalo dos agendamentos (minutos)
-            <input
-              id="openingInterval"
-              type="number"
-              min="5"
-              max="240"
-              step="1"
-              required
-              value="60"
-            >
-          </label>
+            + Adicionar horário
+          </button>
 
           <button
             id="saveOpeningHours"
@@ -291,9 +249,10 @@ function mountOpeningHoursPanel() {
         </div>
 
         <p>
-          Os horários são gerados com o intervalo escolhido
-          e precisam caber antes da pausa ou do fechamento.
-          Os agendamentos existentes serão mantidos.
+          As alterações valem para novas reservas.
+          Os agendamentos já feitos continuam na lista de atendimentos.
+          Se remover todos os horários e salvar,
+          nenhuma nova reserva ficará disponível.
         </p>
 
         <div
@@ -315,22 +274,61 @@ function mountOpeningHoursPanel() {
 
     $("openingHoursForm").addEventListener(
       "input",
-      event => {
-        openingHoursDirty = true;
-
-        $("openingHoursMessage").textContent =
-          "Alterações ainda não salvas.";
-
-        if (event.target.dataset.openingDay !== undefined) {
-          $(
-            "openingTimes" + event.target.dataset.openingDay
-          ).disabled = !event.target.checked;
-        }
-      }
+      markAttendanceHoursDirty
     );
+
+    $("addAttendanceTime").addEventListener("click", () => {
+      appendAttendanceTime("");
+      markAttendanceHoursDirty();
+
+      $("openingHoursDays")
+        .lastElementChild
+        .querySelector("input")
+        .focus();
+    });
   }
 
   panel.hidden = currentUser?.role !== "admin";
+}
+
+function markAttendanceHoursDirty() {
+  openingHoursDirty = true;
+
+  $("openingHoursMessage").style.color = "var(--muted)";
+  $("openingHoursMessage").textContent =
+    "Alterações ainda não salvas.";
+}
+
+function appendAttendanceTime(time) {
+  const row = document.createElement("div");
+
+  row.className = "attendance-row";
+
+  row.innerHTML = `
+    <label>
+      Horário de atendimento
+      <input
+        type="time"
+        step="60"
+        required
+        value="${esc(time)}"
+      >
+    </label>
+
+    <button
+      type="button"
+      class="btn danger btn-sm"
+    >
+      Remover
+    </button>
+  `;
+
+  row.querySelector("button").addEventListener("click", () => {
+    row.remove();
+    markAttendanceHoursDirty();
+  });
+
+  $("openingHoursDays").appendChild(row);
 }
 
 function renderOpeningHoursEditor() {
@@ -343,82 +341,15 @@ function renderOpeningHoursEditor() {
     return;
   }
 
-  const labels = [
-    "Domingo",
-    "Segunda-feira",
-    "Terça-feira",
-    "Quarta-feira",
-    "Quinta-feira",
-    "Sexta-feira",
-    "Sábado"
-  ];
+  $("openingHoursDays").innerHTML = "";
 
-  $("openingHoursDays").innerHTML =
-    [1, 2, 3, 4, 5, 6, 0].map(index => {
-      const day = openingHours.days[index];
+  openingSlots(
+    openingHours,
+    localDate()
+  ).forEach(appendAttendanceTime);
 
-      return `
-        <div class="opening-day">
-          <label class="opening-day-toggle">
-            <input
-              type="checkbox"
-              id="openingOpen${index}"
-              data-opening-day="${index}"
-              ${day.open ? "checked" : ""}
-            >
-            ${labels[index]}
-          </label>
-
-          <fieldset
-            class="opening-times"
-            id="openingTimes${index}"
-            aria-label="Expediente de ${labels[index]}"
-            ${day.open ? "" : "disabled"}
-          >
-            <label>
-              Abertura
-              <input
-                id="openingStart${index}"
-                type="time"
-                required
-                value="${esc(day.start)}"
-              >
-            </label>
-
-            <label>
-              Fechamento
-              <input
-                id="openingEnd${index}"
-                type="time"
-                required
-                value="${esc(day.end)}"
-              >
-            </label>
-
-            <label>
-              Início da pausa
-              <input
-                id="openingBreakStart${index}"
-                type="time"
-                value="${esc(day.breakStart)}"
-              >
-            </label>
-
-            <label>
-              Fim da pausa
-              <input
-                id="openingBreakEnd${index}"
-                type="time"
-                value="${esc(day.breakEnd)}"
-              >
-            </label>
-          </fieldset>
-        </div>
-      `;
-    }).join("");
-
-  $("openingInterval").value = openingHours.interval;
   $("saveOpeningHours").disabled = false;
+  $("addAttendanceTime").disabled = false;
 }
 
 async function saveOpeningHours(event) {
@@ -435,19 +366,37 @@ async function saveOpeningHours(event) {
 
   const message = $("openingHoursMessage");
 
-  const settings = {
-    interval: Number($("openingInterval").value),
+  const slots = Array.from(
+    $("openingHoursDays").querySelectorAll("input"),
+    input => input.value
+  );
 
-    days: Array.from({ length: 7 }, (_, index) => ({
-      open: $("openingOpen" + index).checked,
-      start: $("openingStart" + index).value,
-      end: $("openingEnd" + index).value,
-      breakStart: $("openingBreakStart" + index).value,
-      breakEnd: $("openingBreakEnd" + index).value
-    }))
-  };
+  if (
+    slots.some(
+      time => !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)
+    )
+  ) {
+    message.style.color = "var(--danger)";
+    message.textContent =
+      "Preencha todos os horários antes de salvar.";
+    return;
+  }
 
-  button.disabled = true;
+  if (new Set(slots).size !== slots.length) {
+    message.style.color = "var(--danger)";
+    message.textContent =
+      "Existem horários repetidos. Remova a repetição antes de salvar.";
+    return;
+  }
+
+  const controls = Array.from(
+    $("openingHoursForm").querySelectorAll("input, button")
+  );
+
+  controls.forEach(control => {
+    control.disabled = true;
+  });
+
   button.textContent = "Salvando...";
   message.textContent = "";
 
@@ -457,7 +406,7 @@ async function saveOpeningHours(event) {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(settings)
+      body: JSON.stringify({ slots })
     });
 
     openingHoursDirty = false;
@@ -468,12 +417,15 @@ async function saveOpeningHours(event) {
 
     message.style.color = "var(--success)";
     message.textContent =
-      "Horários salvos! A agenda e as novas reservas já usam essa configuração.";
+      "Horários salvos! Essa lista será usada todos os dias até você alterá-la novamente.";
   } catch (error) {
     message.style.color = "var(--danger)";
     message.textContent = error.message;
   } finally {
-    button.disabled = false;
+    controls.forEach(control => {
+      control.disabled = false;
+    });
+
     button.textContent = "Salvar horários";
   }
 }
@@ -1276,7 +1228,7 @@ function renderAgenda() {
     <div class="empty">
       ${
         openingHours
-          ? "Sem expediente nesta data."
+          ? "Nenhum horário de atendimento disponível nesta data."
           : "Carregando horários..."
       }
     </div>
@@ -2017,7 +1969,8 @@ async function renderClientSlots() {
       `;
     }).join("") || `
       <div class="empty">
-        Sem expediente nesta data. Escolha outro dia.
+        Nenhum horário de atendimento disponível nesta data.
+        Escolha outro dia.
       </div>
     `;
   } catch (error) {
