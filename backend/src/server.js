@@ -809,6 +809,14 @@ app.post(
         `
         INSERT INTO procedimentos(nome, preco)
         VALUES($1, $2)
+
+        ON CONFLICT (nome)
+        DO UPDATE SET
+          preco = EXCLUDED.preco,
+          ativo = true,
+          updated_at = NOW()
+        WHERE procedimentos.ativo = false
+
         RETURNING id, nome, preco
         `,
         [
@@ -816,6 +824,12 @@ app.post(
           value
         ]
       );
+
+      if (!result.rowCount) {
+        return res.status(409).json({
+          error: 'Este procedimento já está cadastrado e ativo.'
+        });
+      }
 
       const procedure = result.rows[0];
 

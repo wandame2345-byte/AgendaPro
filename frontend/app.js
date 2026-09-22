@@ -2067,9 +2067,16 @@ $("cbPhoto").addEventListener("change", () => {
   reader.readAsDataURL(file);
 });
 
+// WhatsApp: somente números, com no máximo 11 dígitos.
+$("cbPhone").type = "tel";
+$("cbPhone").inputMode = "numeric";
+$("cbPhone").maxLength = 11;
+$("cbPhone").placeholder = "85999999999";
+
 $("cbPhone").addEventListener("input", () => {
-  $("cbPhone").value =
-    $("cbPhone").value.replace(/\D/g, "");
+  $("cbPhone").value = $("cbPhone").value
+    .replace(/\D/g, "")
+    .slice(0, 11);
 });
 
 $("clientBookingForm").addEventListener("submit", async event => {
