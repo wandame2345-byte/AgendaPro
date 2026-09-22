@@ -63,7 +63,7 @@ const pool = new Pool({
       : undefined
 });
 
-pool.on('error', (error) => {
+pool.on('error', error => {
   console.error('Erro inesperado no PostgreSQL:', error);
 });
 
@@ -89,17 +89,14 @@ app.use(
 );
 
 app.use('/uploads', express.static(uploadDir));
-
 app.use(express.static(frontend));
 
 /* =========================================================
    UTILITÁRIOS
 ========================================================= */
 
-const asyncHandler =
-  (fn) =>
-  (req, res, next) =>
-    Promise.resolve(fn(req, res, next)).catch(next);
+const asyncHandler = fn => (req, res, next) =>
+  Promise.resolve(fn(req, res, next)).catch(next);
 
 function normalizePhone(value = '') {
   return String(value).trim().replace(/\D/g, '');
@@ -233,8 +230,7 @@ function openingSlots(settings, date) {
     return [...settings.slots];
   }
 
-  // Compatibilidade com a configuração anterior,
-  // até o administrador salvar a nova lista.
+  // Compatibilidade com a configuração anterior.
   const day = settings.days[weekday];
 
   if (!day.open) {
@@ -278,13 +274,13 @@ function openingSlots(settings, date) {
 }
 
 function validateOpeningHours(value) {
-  const fail = (message) => {
+  const fail = message => {
     const error = new Error(message);
     error.status = 400;
     throw error;
   };
 
-  // Novo formato: horários individuais iguais para todos os dias.
+  // Horários individuais iguais para todos os dias.
   if (
     value &&
     Object.prototype.hasOwnProperty.call(value, 'slots')
@@ -773,7 +769,7 @@ app.get(
     );
 
     res.json(
-      result.rows.map((procedure) => ({
+      result.rows.map(procedure => ({
         id: procedure.id,
         name: procedure.nome,
         price: Number(procedure.preco)
@@ -782,79 +778,163 @@ app.get(
   })
 );
 
+function procedurePrice(value) {
+  const text = String(value ?? '')
+    .trim()
+    .replace(',', '.');
+
+  if (!/^\d{1,8}(\.\d{1,2})?$/.test(text)) {
+    return null;
+  }
+
+  const price = Number(text);
+
+  return Number.isFinite(price) && price <= 99999999.99
+    ? price
+    : null;
+}
+
+// Cadastra um procedimento ou reativa um procedimento removido.
 app.post(
   '/api/procedures',
   auth,
   requireAdmin,
   asyncHandler(async (req, res) => {
-    const {
-      name,
-      price
-    } = req.body || {};
-
-    const procedureName = String(
-      name || ''
+    const name = String(
+      req.body?.name || ''
     ).trim();
 
-    if (!procedureName) {
+    const price = procedurePrice(
+      req.body?.price
+    );
+
+    if (!name || name.length > 150) {
       return res.status(400).json({
-        error: 'Informe o nome do procedimento.'
+        error: 'Informe um nome de até 150 caracteres.'
       });
     }
 
-    const value = Number(price) || 0;
-
-    try {
-      const result = await pool.query(
-        `
-        INSERT INTO procedimentos(nome, preco)
-        VALUES($1, $2)
-
-        ON CONFLICT (nome)
-        DO UPDATE SET
-          preco = EXCLUDED.preco,
-          ativo = true,
-          updated_at = NOW()
-        WHERE procedimentos.ativo = false
-
-        RETURNING id, nome, preco
-        `,
-        [
-          procedureName,
-          value
-        ]
-      );
-
-      if (!result.rowCount) {
-        return res.status(409).json({
-          error: 'Este procedimento já está cadastrado e ativo.'
-        });
-      }
-
-      const procedure = result.rows[0];
-
-      res.status(201).json({
-        id: procedure.id,
-        name: procedure.nome,
-        price: Number(procedure.preco)
+    if (price === null) {
+      return res.status(400).json({
+        error:
+          'Informe um valor de 0 a 99999999,99, com até duas casas decimais.'
       });
-    } catch (error) {
-      if (error.code === '23505') {
-        return res.status(409).json({
-          error: 'Este procedimento já existe.'
-        });
-      }
-
-      throw error;
     }
+
+    const result = await pool.query(
+      `
+      INSERT INTO procedimentos(nome, preco)
+      VALUES($1, $2)
+
+      ON CONFLICT (nome)
+      DO UPDATE SET
+        preco = EXCLUDED.preco,
+        ativo = true,
+        updated_at = NOW()
+      WHERE procedimentos.ativo = false
+
+      RETURNING id, nome, preco
+      `,
+      [
+        name,
+        price
+      ]
+    );
+
+    if (!result.rowCount) {
+      return res.status(409).json({
+        error:
+          'Este procedimento já está cadastrado. Use o botão Alterar valor.'
+      });
+    }
+
+    const procedure = result.rows[0];
+
+    res.status(201).json({
+      id: procedure.id,
+      name: procedure.nome,
+      price: Number(procedure.preco)
+    });
   })
 );
 
+// Altera somente o preço padrão do procedimento.
+// Os valores dos agendamentos já registrados são preservados.
+app.patch(
+  '/api/procedures/:id/price',
+  auth,
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const id = String(req.params.id);
+
+    if (
+      !/^[1-9]\d{0,18}$/.test(id) ||
+      BigInt(id) > 9223372036854775807n
+    ) {
+      return res.status(400).json({
+        error: 'Procedimento inválido.'
+      });
+    }
+
+    const price = procedurePrice(
+      req.body?.price
+    );
+
+    if (price === null) {
+      return res.status(400).json({
+        error:
+          'Informe um valor de 0 a 99999999,99, com até duas casas decimais.'
+      });
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE procedimentos
+      SET preco = $1,
+          updated_at = NOW()
+      WHERE id = $2
+        AND ativo = true
+      RETURNING id, nome, preco
+      `,
+      [
+        price,
+        id
+      ]
+    );
+
+    if (!result.rowCount) {
+      return res.status(404).json({
+        error: 'Procedimento não encontrado.'
+      });
+    }
+
+    const procedure = result.rows[0];
+
+    res.json({
+      id: procedure.id,
+      name: procedure.nome,
+      price: Number(procedure.preco)
+    });
+  })
+);
+
+// Remove da lista sem apagar o histórico de agendamentos.
 app.delete(
   '/api/procedures/:id',
   auth,
   requireAdmin,
   asyncHandler(async (req, res) => {
+    const id = String(req.params.id);
+
+    if (
+      !/^[1-9]\d{0,18}$/.test(id) ||
+      BigInt(id) > 9223372036854775807n
+    ) {
+      return res.status(400).json({
+        error: 'Procedimento inválido.'
+      });
+    }
+
     await pool.query(
       `
       UPDATE procedimentos
@@ -862,7 +942,7 @@ app.delete(
           updated_at = NOW()
       WHERE id = $1
       `,
-      [req.params.id]
+      [id]
     );
 
     res.json({
@@ -917,7 +997,7 @@ app.get(
     );
 
     res.json(
-      result.rows.map((client) => ({
+      result.rows.map(client => ({
         ...publicClient(client),
         count: client.count,
         total: Number(client.total),
@@ -1006,7 +1086,6 @@ app.delete(
       });
     }
 
-    // Remove da lista sem apagar agendamentos e relatórios.
     const result = await pool.query(
       `
       UPDATE clientes
@@ -1034,10 +1113,7 @@ app.delete(
    FUNÇÃO AUXILIAR DE CLIENTE
 ========================================================= */
 
-async function upsertClient(
-  client,
-  clientInfo
-) {
+async function upsertClient(client, clientInfo) {
   const name = String(
     clientInfo.name || ''
   ).trim();
@@ -1060,8 +1136,7 @@ async function upsertClient(
     throw error;
   }
 
-  const photo =
-    clientInfo.photo || null;
+  const photo = clientInfo.photo || null;
 
   const result = await client.query(
     `
@@ -1175,8 +1250,7 @@ app.post(
       });
     }
 
-    const client =
-      await pool.connect();
+    const client = await pool.connect();
 
     try {
       await client.query('BEGIN');
@@ -1187,26 +1261,24 @@ app.post(
         time
       );
 
-      const customer =
-        await upsertClient(
-          client,
-          {
-            name,
-            phone,
-            note
-          }
-        );
+      const customer = await upsertClient(
+        client,
+        {
+          name,
+          phone,
+          note
+        }
+      );
 
-      const procedure =
-        await client.query(
-          `
-          SELECT id, nome, preco
-          FROM procedimentos
-          WHERE id = $1
-            AND ativo = true
-          `,
-          [procedureId]
-        );
+      const procedure = await client.query(
+        `
+        SELECT id, nome, preco
+        FROM procedimentos
+        WHERE id = $1
+          AND ativo = true
+        `,
+        [procedureId]
+      );
 
       if (!procedure.rowCount) {
         const error = new Error(
@@ -1220,84 +1292,78 @@ app.post(
 
       const value =
         Number(
-          price ??
-            procedure.rows[0].preco
+          price ?? procedure.rows[0].preco
         ) || 0;
 
-      const result =
-        await client.query(
-          `
-          INSERT INTO agendamentos(
-            cliente_id,
-            procedimento_id,
-            data,
-            hora,
-            valor,
-            status,
-            observacao,
-            criado_por
-          )
-          VALUES(
-            $1,
-            $2,
-            $3,
-            $4,
-            $5,
-            $6,
-            $7,
-            $8
-          )
-          RETURNING id
-          `,
-          [
-            customer.id,
-            procedure.rows[0].id,
-            date,
-            time,
-            value,
-            status,
-            note,
-            req.user.id
-          ]
-        );
+      const result = await client.query(
+        `
+        INSERT INTO agendamentos(
+          cliente_id,
+          procedimento_id,
+          data,
+          hora,
+          valor,
+          status,
+          observacao,
+          criado_por
+        )
+        VALUES(
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7,
+          $8
+        )
+        RETURNING id
+        `,
+        [
+          customer.id,
+          procedure.rows[0].id,
+          date,
+          time,
+          value,
+          status,
+          note,
+          req.user.id
+        ]
+      );
 
       await client.query('COMMIT');
 
-      const full =
-        await pool.query(
-          `
-          SELECT
-            a.*,
-            c.nome,
-            c.telefone,
-            p.nome AS procedimento
+      const full = await pool.query(
+        `
+        SELECT
+          a.*,
+          c.nome,
+          c.telefone,
+          p.nome AS procedimento
 
-          FROM agendamentos a
+        FROM agendamentos a
 
-          JOIN clientes c
-            ON c.id = a.cliente_id
+        JOIN clientes c
+          ON c.id = a.cliente_id
 
-          JOIN procedimentos p
-            ON p.id = a.procedimento_id
+        JOIN procedimentos p
+          ON p.id = a.procedimento_id
 
-          WHERE a.id = $1
-          `,
-          [result.rows[0].id]
-        );
+        WHERE a.id = $1
+        `,
+        [result.rows[0].id]
+      );
 
       res.status(201).json(
-        publicAppointment(
-          full.rows[0]
-        )
+        publicAppointment(full.rows[0])
       );
     } catch (error) {
       await client.query('ROLLBACK');
 
       if (error.code === '23505') {
-        const conflict =
-          new Error(
-            'Este horário já está ocupado.'
-          );
+        const conflict = new Error(
+          'Este horário já está ocupado.'
+        );
 
         conflict.status = 409;
 
@@ -1328,8 +1394,7 @@ app.get(
       });
     }
 
-    const settings =
-      await readOpeningHours();
+    const settings = await readOpeningHours();
 
     const result = await pool.query(
       `
@@ -1348,8 +1413,7 @@ app.get(
       date,
       slots: openingSlots(settings, date),
       taken: result.rows.map(
-        (row) =>
-          String(row.hora).slice(0, 5)
+        row => String(row.hora).slice(0, 5)
       )
     });
   })
@@ -1385,16 +1449,15 @@ app.post(
       });
     }
 
-    const procedure =
-      await pool.query(
-        `
-        SELECT id, nome, preco
-        FROM procedimentos
-        WHERE id = $1
-          AND ativo = true
-        `,
-        [procedureId]
-      );
+    const procedure = await pool.query(
+      `
+      SELECT id, nome, preco
+      FROM procedimentos
+      WHERE id = $1
+        AND ativo = true
+      `,
+      [procedureId]
+    );
 
     if (!procedure.rowCount) {
       return res.status(400).json({
@@ -1402,8 +1465,7 @@ app.post(
       });
     }
 
-    const client =
-      await pool.connect();
+    const client = await pool.connect();
 
     try {
       await client.query('BEGIN');
@@ -1414,53 +1476,49 @@ app.post(
         time
       );
 
-      const customer =
-        await upsertClient(
-          client,
-          {
-            name,
-            phone,
-            note,
-            photo: req.file
-              ? `/uploads/${req.file.filename}`
-              : null
-          }
-        );
+      const customer = await upsertClient(
+        client,
+        {
+          name,
+          phone,
+          note,
+          photo: req.file
+            ? `/uploads/${req.file.filename}`
+            : null
+        }
+      );
 
-      const result =
-        await client.query(
-          `
-          INSERT INTO agendamentos(
-            cliente_id,
-            procedimento_id,
-            data,
-            hora,
-            valor,
-            status,
-            observacao
-          )
-          VALUES(
-            $1,
-            $2,
-            $3,
-            $4,
-            $5,
-            'Agendado',
-            $6
-          )
-          RETURNING id
-          `,
-          [
-            customer.id,
-            procedure.rows[0].id,
-            date,
-            time,
-            Number(
-              procedure.rows[0].preco
-            ) || 0,
-            note
-          ]
-        );
+      const result = await client.query(
+        `
+        INSERT INTO agendamentos(
+          cliente_id,
+          procedimento_id,
+          data,
+          hora,
+          valor,
+          status,
+          observacao
+        )
+        VALUES(
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          'Agendado',
+          $6
+        )
+        RETURNING id
+        `,
+        [
+          customer.id,
+          procedure.rows[0].id,
+          date,
+          time,
+          Number(procedure.rows[0].preco) || 0,
+          note
+        ]
+      );
 
       await client.query('COMMIT');
 
@@ -1497,8 +1555,7 @@ app.patch(
   '/api/appointments/:id/status',
   auth,
   asyncHandler(async (req, res) => {
-    const status =
-      req.body?.status;
+    const status = req.body?.status;
 
     const validStatuses = [
       'Agendado',
@@ -1507,34 +1564,30 @@ app.patch(
       'Cancelado'
     ];
 
-    if (
-      !validStatuses.includes(status)
-    ) {
+    if (!validStatuses.includes(status)) {
       return res.status(400).json({
         error: 'Status inválido.'
       });
     }
 
-    const client =
-      await pool.connect();
+    const client = await pool.connect();
 
     try {
       await client.query('BEGIN');
 
-      const result =
-        await client.query(
-          `
-          UPDATE agendamentos
-          SET status = $1,
-              updated_at = NOW()
-          WHERE id = $2
-          RETURNING *
-          `,
-          [
-            status,
-            req.params.id
-          ]
-        );
+      const result = await client.query(
+        `
+        UPDATE agendamentos
+        SET status = $1,
+            updated_at = NOW()
+        WHERE id = $2
+        RETURNING *
+        `,
+        [
+          status,
+          req.params.id
+        ]
+      );
 
       if (!result.rowCount) {
         const error = new Error(
@@ -1547,8 +1600,7 @@ app.patch(
       }
 
       if (status === 'Atendido') {
-        const appointment =
-          result.rows[0];
+        const appointment = result.rows[0];
 
         await client.query(
           `
@@ -1603,12 +1655,7 @@ app.patch(
    RELATÓRIOS
 ========================================================= */
 
-async function reportData(
-  type,
-  date,
-  month,
-  year
-) {
+async function reportData(type, date, month, year) {
   let start;
   let end;
   let label;
@@ -1616,160 +1663,118 @@ async function reportData(
   if (type === 'month') {
     const selectedMonth =
       month ||
-      new Date()
-        .toISOString()
-        .slice(0, 7);
+      new Date().toISOString().slice(0, 7);
 
     const [
       selectedYear,
       selectedMonthNumber
-    ] = selectedMonth
-      .split('-')
-      .map(Number);
+    ] = selectedMonth.split('-').map(Number);
 
     start =
       `${selectedYear}-` +
-      `${String(
-        selectedMonthNumber
-      ).padStart(2, '0')}-01`;
+      `${String(selectedMonthNumber).padStart(2, '0')}-01`;
 
-    if (
-      selectedMonthNumber === 12
-    ) {
-      end =
-        `${selectedYear + 1}-01-01`;
+    if (selectedMonthNumber === 12) {
+      end = `${selectedYear + 1}-01-01`;
     } else {
       end =
         `${selectedYear}-` +
-        `${String(
-          selectedMonthNumber + 1
-        ).padStart(2, '0')}-01`;
+        `${String(selectedMonthNumber + 1).padStart(2, '0')}-01`;
     }
 
-    label =
-      `Mensal — ${selectedMonth}`;
+    label = `Mensal — ${selectedMonth}`;
   } else if (type === 'year') {
     const selectedYear =
-      Number(year) ||
-      new Date().getFullYear();
+      Number(year) || new Date().getFullYear();
 
-    start =
-      `${selectedYear}-01-01`;
-
-    end =
-      `${selectedYear + 1}-01-01`;
-
-    label =
-      `Anual — ${selectedYear}`;
+    start = `${selectedYear}-01-01`;
+    end = `${selectedYear + 1}-01-01`;
+    label = `Anual — ${selectedYear}`;
   } else {
     const selectedDate =
       date ||
-      new Date()
-        .toISOString()
-        .slice(0, 10);
+      new Date().toISOString().slice(0, 10);
 
     start = selectedDate;
 
-    const nextDay =
-      new Date(
-        `${selectedDate}T00:00:00Z`
-      );
+    const nextDay = new Date(
+      `${selectedDate}T00:00:00Z`
+    );
 
     nextDay.setUTCDate(
       nextDay.getUTCDate() + 1
     );
 
-    end =
-      nextDay
-        .toISOString()
-        .slice(0, 10);
+    end = nextDay.toISOString().slice(0, 10);
 
-    label =
-      `Diário — ${selectedDate}`;
+    label = `Diário — ${selectedDate}`;
   }
 
-  const result =
-    await pool.query(
-      `
-      SELECT
-        a.id,
-        a.data,
-        a.hora,
-        a.valor,
-        a.status,
-        a.observacao,
-        c.nome AS cliente,
-        c.telefone,
-        p.nome AS procedimento,
-        c.observacao AS cliente_observacao
+  const result = await pool.query(
+    `
+    SELECT
+      a.id,
+      a.data,
+      a.hora,
+      a.valor,
+      a.status,
+      a.observacao,
+      c.nome AS cliente,
+      c.telefone,
+      p.nome AS procedimento,
+      c.observacao AS cliente_observacao
 
-      FROM agendamentos a
+    FROM agendamentos a
 
-      JOIN clientes c
-        ON c.id = a.cliente_id
+    JOIN clientes c
+      ON c.id = a.cliente_id
 
-      JOIN procedimentos p
-        ON p.id = a.procedimento_id
+    JOIN procedimentos p
+      ON p.id = a.procedimento_id
 
-      WHERE a.data >= $1
-        AND a.data < $2
+    WHERE a.data >= $1
+      AND a.data < $2
 
-      ORDER BY
-        a.data,
-        a.hora
-      `,
-      [
-        start,
-        end
-      ]
-    );
+    ORDER BY
+      a.data,
+      a.hora
+    `,
+    [
+      start,
+      end
+    ]
+  );
 
-  const data =
-    result.rows.map(
-      (row) => ({
-        ...row,
-        valor: Number(row.valor)
-      })
-    );
+  const data = result.rows.map(row => ({
+    ...row,
+    valor: Number(row.valor)
+  }));
 
-  const validData =
-    data.filter(
-      (row) =>
-        row.status !== 'Cancelado'
-    );
+  const validData = data.filter(
+    row => row.status !== 'Cancelado'
+  );
 
-  const revenue =
-    validData.reduce(
-      (total, row) =>
-        total + row.valor,
-      0
-    );
+  const revenue = validData.reduce(
+    (total, row) => total + row.valor,
+    0
+  );
 
-  const attended =
-    data.filter(
-      (row) =>
-        row.status === 'Atendido'
-    ).length;
+  const attended = data.filter(
+    row => row.status === 'Atendido'
+  ).length;
 
-  const canceled =
-    data.filter(
-      (row) =>
-        row.status === 'Cancelado'
-    ).length;
+  const canceled = data.filter(
+    row => row.status === 'Cancelado'
+  ).length;
 
-  const pending =
-    data.filter(
-      (row) =>
-        ![
-          'Atendido',
-          'Cancelado'
-        ].includes(row.status)
-    ).length;
+  const pending = data.filter(
+    row =>
+      !['Atendido', 'Cancelado'].includes(row.status)
+  ).length;
 
-  const ticket =
-    validData.length
-      ? revenue / validData.length
-      : 0;
+  const ticket = validData.length
+    ? revenue / validData.length
+    : 0;
 
   return {
     data,
@@ -1790,37 +1795,21 @@ app.get(
   auth,
   requireAdmin,
   asyncHandler(async (_req, res) => {
-    const today =
-      new Date()
-        .toISOString()
-        .slice(0, 10);
+    const today = new Date()
+      .toISOString()
+      .slice(0, 10);
 
-    const month =
-      today.slice(0, 7);
-
-    const year =
-      today.slice(0, 4);
+    const month = today.slice(0, 7);
+    const year = today.slice(0, 4);
 
     const [
       dayReport,
       monthReport,
       yearReport
     ] = await Promise.all([
-      reportData(
-        'day',
-        today
-      ),
-      reportData(
-        'month',
-        null,
-        month
-      ),
-      reportData(
-        'year',
-        null,
-        null,
-        year
-      )
+      reportData('day', today),
+      reportData('month', null, month),
+      reportData('year', null, null, year)
     ]);
 
     res.json({
@@ -1836,13 +1825,12 @@ app.get(
   auth,
   requireAdmin,
   asyncHandler(async (req, res) => {
-    const result =
-      await reportData(
-        req.query.type || 'month',
-        req.query.date,
-        req.query.month,
-        req.query.year
-      );
+    const result = await reportData(
+      req.query.type || 'month',
+      req.query.date,
+      req.query.month,
+      req.query.year
+    );
 
     res.json(result);
   })
@@ -1857,19 +1845,17 @@ app.get(
   auth,
   requireAdmin,
   asyncHandler(async (req, res) => {
-    const report =
-      await reportData(
-        req.query.type || 'day',
-        req.query.date,
-        req.query.month,
-        req.query.year
-      );
+    const report = await reportData(
+      req.query.type || 'day',
+      req.query.date,
+      req.query.month,
+      req.query.year
+    );
 
-    const safeName =
-      report.label.replace(
-        /[^a-z0-9_-]+/gi,
-        '_'
-      );
+    const safeName = report.label.replace(
+      /[^a-z0-9_-]+/gi,
+      '_'
+    );
 
     res.setHeader(
       'Content-Type',
@@ -1881,11 +1867,10 @@ app.get(
       `attachment; filename="Relatorio_${safeName}.pdf"`
     );
 
-    const doc =
-      new PDFDocument({
-        size: 'A4',
-        margin: 40
-      });
+    const doc = new PDFDocument({
+      size: 'A4',
+      margin: 40
+    });
 
     doc.pipe(res);
 
@@ -1942,27 +1927,17 @@ app.get(
     const procedures = {};
 
     for (const appointment of report.data) {
-      procedures[
-        appointment.procedimento
-      ] =
-        (procedures[
-          appointment.procedimento
-        ] || 0) + 1;
+      procedures[appointment.procedimento] =
+        (procedures[appointment.procedimento] || 0) + 1;
     }
 
     doc
       .fontSize(13)
       .text('Procedimentos');
 
-    doc
-      .fontSize(10);
+    doc.fontSize(10);
 
-    for (
-      const [
-        procedure,
-        count
-      ] of Object.entries(procedures)
-    ) {
+    for (const [procedure, count] of Object.entries(procedures)) {
       doc.text(
         `${procedure}: ${count} atendimento(s)`
       );
@@ -1972,9 +1947,7 @@ app.get(
 
     doc
       .fontSize(13)
-      .text(
-        'Atendimentos das clientes'
-      );
+      .text('Atendimentos das clientes');
 
     doc.moveDown(0.5);
 
@@ -1991,8 +1964,7 @@ app.get(
       index < report.data.length;
       index++
     ) {
-      const appointment =
-        report.data[index];
+      const appointment = report.data[index];
 
       if (doc.y > 700) {
         doc.addPage();
@@ -2008,19 +1980,14 @@ app.get(
         .fontSize(8.5)
         .text(
           `Data: ${new Date(
-            appointment.data +
-              'T12:00:00'
-          ).toLocaleDateString(
-            'pt-BR'
-          )}  Hora: ${String(
+            appointment.data + 'T12:00:00'
+          ).toLocaleDateString('pt-BR')}  Hora: ${String(
             appointment.hora
           ).slice(0, 5)}`
         );
 
       doc.text(
-        `Telefone/WhatsApp: ${
-          appointment.telefone || '-'
-        }`
+        `Telefone/WhatsApp: ${appointment.telefone || '-'}`
       );
 
       doc.text(
@@ -2031,7 +1998,7 @@ app.get(
         `Valor: R$ ${appointment.valor
           .toFixed(2)
           .replace('.', ',')}  ` +
-          `Status: ${appointment.status}`
+        `Status: ${appointment.status}`
       );
 
       doc.text(
@@ -2048,9 +2015,7 @@ app.get(
     doc
       .fontSize(7)
       .text(
-        `Gerado em ${new Date().toLocaleString(
-          'pt-BR'
-        )}`
+        `Gerado em ${new Date().toLocaleString('pt-BR')}`
       );
 
     doc.end();
@@ -2063,62 +2028,48 @@ app.get(
 
 app.get('/', (_req, res) => {
   res.sendFile(
-    path.join(
-      frontend,
-      'index.html'
-    )
+    path.join(frontend, 'index.html')
   );
 });
 
-app.use(
-  (req, res, next) => {
-    if (
-      req.path.startsWith('/api/')
-    ) {
-      return next();
-    }
-
-    res.sendFile(
-      path.join(
-        frontend,
-        'index.html'
-      )
-    );
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    return next();
   }
-);
+
+  res.sendFile(
+    path.join(frontend, 'index.html')
+  );
+});
 
 /* =========================================================
    ERROS
 ========================================================= */
 
-app.use(
-  (error, _req, res, _next) => {
-    console.error(
-      'Erro no AgendaPro:',
-      error
-    );
+app.use((error, _req, res, _next) => {
+  console.error(
+    'Erro no AgendaPro:',
+    error
+  );
 
-    const status =
-      Number(error.status) || 500;
+  const status = Number(error.status) || 500;
 
-    res.status(status).json({
-      error:
-        error.message ||
-        'Erro interno do servidor.'
-    });
-  }
-);
+  res.status(status).json({
+    error:
+      error.message ||
+      'Erro interno do servidor.'
+  });
+});
 
 /* =========================================================
    BANCO DE DADOS
 ========================================================= */
 
 async function ensureSchema() {
-  const schemaPath =
-    path.join(
-      __dirname,
-      '../sql/schema.sql'
-    );
+  const schemaPath = path.join(
+    __dirname,
+    '../sql/schema.sql'
+  );
 
   if (!fs.existsSync(schemaPath)) {
     throw new Error(
@@ -2126,11 +2077,10 @@ async function ensureSchema() {
     );
   }
 
-  const schema =
-    fs.readFileSync(
-      schemaPath,
-      'utf8'
-    );
+  const schema = fs.readFileSync(
+    schemaPath,
+    'utf8'
+  );
 
   await pool.query(schema);
 
@@ -2164,30 +2114,25 @@ async function startServer() {
   try {
     await ensureSchema();
 
-    app.listen(
-      PORT,
-      '0.0.0.0',
-      () => {
-        console.log(
-          '========================================'
-        );
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(
+        '========================================'
+      );
 
-        console.log(
-          `🚀 AgendaPro rodando na porta ${PORT}`
-        );
+      console.log(
+        `🚀 AgendaPro rodando na porta ${PORT}`
+      );
 
-        console.log(
-          `🌐 Ambiente: ${
-            process.env.NODE_ENV ||
-            'development'
-          }`
-        );
+      console.log(
+        `🌐 Ambiente: ${
+          process.env.NODE_ENV || 'development'
+        }`
+      );
 
-        console.log(
-          '========================================'
-        );
-      }
-    );
+      console.log(
+        '========================================'
+      );
+    });
   } catch (error) {
     console.error(
       '========================================'

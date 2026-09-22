@@ -99,8 +99,7 @@ function openingSlots(settings, date) {
     return [...settings.slots];
   }
 
-  // Compatibilidade com a configuração anterior,
-  // até salvar a nova lista de horários.
+  // Compatibilidade com a configuração anterior.
   const day = settings.days[value.getUTCDay()];
 
   if (!day.open) return [];
@@ -1630,12 +1629,31 @@ async function removeClient(id) {
    PROCEDIMENTOS
 ========================= */
 
+function readProcedurePrice(value) {
+  const text = String(value ?? "").trim().replace(",", ".");
+
+  if (!/^\d{1,8}(\.\d{1,2})?$/.test(text)) {
+    return null;
+  }
+
+  const price = Number(text);
+
+  return Number.isFinite(price) && price <= 99999999.99
+    ? price
+    : null;
+}
+
 async function addProcedure() {
   const name = $("procName").value.trim();
-  const price = Number($("procPrice").value) || 0;
+  const price = readProcedurePrice($("procPrice").value);
 
-  if (!name) {
-    alert("Informe o nome do procedimento.");
+  if (!name || name.length > 150) {
+    alert("Informe um nome de até 150 caracteres.");
+    return;
+  }
+
+  if (price === null) {
+    alert("Informe um valor válido, como 40 ou 40,50.");
     return;
   }
 
@@ -1660,16 +1678,70 @@ async function addProcedure() {
   }
 }
 
-function removeProcedure(id) {
-  if (!confirm("Remover este procedimento?")) {
+async function editProcedurePrice(id) {
+  const procedure = procedures.find(
+    item => String(item.id) === String(id)
+  );
+
+  if (!procedure) return;
+
+  const value = prompt(
+    'Novo valor de "' + procedure.name + '" (R$):',
+    Number(procedure.price).toFixed(2).replace(".", ",")
+  );
+
+  if (value === null) return;
+
+  const price = readProcedurePrice(value);
+
+  if (price === null) {
+    alert("Informe um valor válido, como 40 ou 40,50.");
     return;
   }
 
-  api(`/api/procedures/${id}`, {
-    method: "DELETE"
-  })
-    .then(refreshData)
-    .catch(error => alert(error.message));
+  try {
+    await api(
+      "/api/procedures/" + encodeURIComponent(id) + "/price",
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          price
+        })
+      }
+    );
+
+    await refreshData();
+
+    alert(
+      "Valor atualizado! O novo preço será usado nos próximos agendamentos."
+    );
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function removeProcedure(id) {
+  if (!confirm(
+    "Remover este procedimento? Os agendamentos já feitos serão mantidos."
+  )) {
+    return;
+  }
+
+  try {
+    await api(
+      "/api/procedures/" + encodeURIComponent(id),
+      {
+        method: "DELETE"
+      }
+    );
+
+    await refreshData();
+  } catch (error) {
+    alert(error.message);
+  }
 }
 
 function renderProcedures() {
@@ -1679,7 +1751,7 @@ function renderProcedures() {
         <tr>
           <th>Procedimento</th>
           <th>Valor padrão</th>
-          <th></th>
+          <th>Ações</th>
         </tr>
         ${procedures.map(procedure => `
           <tr>
@@ -1688,7 +1760,15 @@ function renderProcedures() {
             <td>
               <button
                 type="button"
-                class="btn secondary"
+                class="btn secondary btn-sm"
+                onclick="editProcedurePrice(${idArgument(procedure.id)})"
+              >
+                Alterar valor
+              </button>
+
+              <button
+                type="button"
+                class="btn danger btn-sm"
                 onclick="removeProcedure(${idArgument(procedure.id)})"
               >
                 Remover
