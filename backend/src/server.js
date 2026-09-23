@@ -14,13 +14,10 @@ import { fileURLToPath } from 'url';
 dotenv.config();
 
 const { Pool } = pg;
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 const root = path.resolve(__dirname, '../../');
 const frontend = path.join(root, 'frontend');
-
 const PORT = Number(process.env.PORT || 3000);
 
 const JWT_SECRET =
@@ -30,18 +27,14 @@ const JWT_SECRET =
     : 'agendapro-dev-secret-change-me');
 
 if (!JWT_SECRET) {
-  console.error('========================================');
   console.error('ERRO: JWT_SECRET não configurado.');
   console.error('Configure JWT_SECRET no Render.');
-  console.error('========================================');
   process.exit(1);
 }
 
 if (!process.env.DATABASE_URL) {
-  console.error('========================================');
   console.error('ERRO: DATABASE_URL não configurada.');
   console.error('Configure DATABASE_URL no Render.');
-  console.error('========================================');
   process.exit(1);
 }
 
@@ -67,33 +60,14 @@ pool.on('error', error => {
   console.error('Erro inesperado no PostgreSQL:', error);
 });
 
-app.use(
-  helmet({
-    contentSecurityPolicy: false
-  })
-);
-
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cookieParser());
-
-app.use(
-  express.json({
-    limit: '2mb'
-  })
-);
-
-app.use(
-  express.urlencoded({
-    extended: true,
-    limit: '2mb'
-  })
-);
-
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use('/uploads', express.static(uploadDir));
 app.use(express.static(frontend));
 
-/* =========================================================
-   UTILITÁRIOS
-========================================================= */
+// UTILITÁRIOS
 
 const asyncHandler = fn => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
@@ -110,9 +84,7 @@ function signUser(user) {
       name: user.nome
     },
     JWT_SECRET,
-    {
-      expiresIn: '8h'
-    }
+    { expiresIn: '8h' }
   );
 }
 
@@ -127,7 +99,6 @@ function auth(req, res, next) {
     }
 
     req.user = jwt.verify(token, JWT_SECRET);
-
     next();
   } catch {
     return res.status(401).json({
@@ -152,7 +123,8 @@ function publicClient(client) {
     name: client.nome,
     phone: client.telefone,
     photo: client.foto_url,
-    note: client.observacao
+    note: client.observacao,
+    active: client.ativo
   };
 }
 
@@ -171,16 +143,13 @@ function publicAppointment(appointment) {
   };
 }
 
-/* =========================================================
-   HORÁRIOS DE ATENDIMENTO
-========================================================= */
+// HORÁRIOS DE ATENDIMENTO
 
 function defaultOpeningHours() {
   return {
     slots: Array.from(
       { length: 12 },
-      (_, index) =>
-        `${String(index + 8).padStart(2, '0')}:00`
+      (_, index) => `${String(index + 8).padStart(2, '0')}:00`
     )
   };
 }
@@ -194,7 +163,6 @@ function openingMinutes(value) {
   }
 
   const [hour, minute] = value.split(':').map(Number);
-
   return hour * 60 + minute;
 }
 
@@ -221,21 +189,15 @@ function openingWeekday(date) {
 function openingSlots(settings, date) {
   const weekday = openingWeekday(date);
 
-  if (weekday === null) {
-    return [];
-  }
+  if (weekday === null) return [];
 
-  // A lista personalizada se repete em todos os dias.
   if (Array.isArray(settings.slots)) {
     return [...settings.slots];
   }
 
-  // Compatibilidade com a configuração anterior.
   const day = settings.days[weekday];
 
-  if (!day.open) {
-    return [];
-  }
+  if (!day.open) return [];
 
   const start = openingMinutes(day.start);
   const end = openingMinutes(day.end);
@@ -245,10 +207,7 @@ function openingSlots(settings, date) {
   const ranges =
     pauseStart === null
       ? [[start, end]]
-      : [
-          [start, pauseStart],
-          [pauseEnd, end]
-        ];
+      : [[start, pauseStart], [pauseEnd, end]];
 
   const slots = [];
 
@@ -258,14 +217,8 @@ function openingSlots(settings, date) {
       minute + settings.interval <= until;
       minute += settings.interval
     ) {
-      const hourText = String(
-        Math.floor(minute / 60)
-      ).padStart(2, '0');
-
-      const minuteText = String(
-        minute % 60
-      ).padStart(2, '0');
-
+      const hourText = String(Math.floor(minute / 60)).padStart(2, '0');
+      const minuteText = String(minute % 60).padStart(2, '0');
       slots.push(`${hourText}:${minuteText}`);
     }
   }
@@ -280,55 +233,35 @@ function validateOpeningHours(value) {
     throw error;
   };
 
-  // Horários individuais iguais para todos os dias.
   if (
     value &&
     Object.prototype.hasOwnProperty.call(value, 'slots')
   ) {
-    if (
-      !Array.isArray(value.slots) ||
-      value.slots.length > 1440
-    ) {
+    if (!Array.isArray(value.slots) || value.slots.length > 1440) {
       fail('Informe uma lista de até 1440 horários.');
     }
 
-    if (
-      value.slots.some(
-        time => openingMinutes(time) === null
-      )
-    ) {
+    if (value.slots.some(time => openingMinutes(time) === null)) {
       fail('Preencha cada horário no formato HH:mm.');
     }
 
-    if (
-      new Set(value.slots).size !== value.slots.length
-    ) {
-      fail(
-        'Existem horários repetidos. Remova a repetição antes de salvar.'
-      );
+    if (new Set(value.slots).size !== value.slots.length) {
+      fail('Existem horários repetidos. Remova a repetição antes de salvar.');
     }
 
-    return {
-      slots: [...value.slots].sort()
-    };
+    return { slots: [...value.slots].sort() };
   }
 
-  // Compatibilidade com o formato anterior.
   if (
     !value ||
     !Number.isInteger(value.interval) ||
     value.interval < 5 ||
     value.interval > 240
   ) {
-    fail(
-      'O intervalo deve ser um número inteiro de 5 a 240 minutos.'
-    );
+    fail('O intervalo deve ser um número inteiro de 5 a 240 minutos.');
   }
 
-  if (
-    !Array.isArray(value.days) ||
-    value.days.length !== 7
-  ) {
+  if (!Array.isArray(value.days) || value.days.length !== 7) {
     fail('Configure os sete dias da semana.');
   }
 
@@ -344,23 +277,18 @@ function validateOpeningHours(value) {
 
   const days = value.days.map((day, index) => {
     if (!day || typeof day.open !== 'boolean') {
-      fail(
-        `${labels[index]}: informe se o dia está aberto.`
-      );
+      fail(`${labels[index]}: informe se o dia está aberto.`);
     }
 
     const start = openingMinutes(day.start);
     const end = openingMinutes(day.end);
 
     if (start === null || end === null) {
-      fail(
-        `${labels[index]}: informe horários válidos.`
-      );
+      fail(`${labels[index]}: informe horários válidos.`);
     }
 
     const breakStart = day.breakStart ?? '';
     const breakEnd = day.breakEnd ?? '';
-
     const pauseStart = openingMinutes(breakStart);
     const pauseEnd = openingMinutes(breakEnd);
 
@@ -382,11 +310,7 @@ function validateOpeningHours(value) {
     if (
       day.open &&
       pauseStart !== null &&
-      !(
-        start < pauseStart &&
-        pauseStart < pauseEnd &&
-        pauseEnd < end
-      )
+      !(start < pauseStart && pauseStart < pauseEnd && pauseEnd < end)
     ) {
       fail(
         `${labels[index]}: a pausa deve começar e terminar dentro do expediente.`
@@ -405,17 +329,9 @@ function validateOpeningHours(value) {
       const ranges =
         pauseStart === null
           ? [[start, end]]
-          : [
-              [start, pauseStart],
-              [pauseEnd, end]
-            ];
+          : [[start, pauseStart], [pauseEnd, end]];
 
-      if (
-        !ranges.some(
-          ([from, until]) =>
-            until - from >= value.interval
-        )
-      ) {
+      if (!ranges.some(([from, until]) => until - from >= value.interval)) {
         fail(
           `${labels[index]}: o expediente precisa comportar pelo menos um intervalo completo.`
         );
@@ -425,39 +341,24 @@ function validateOpeningHours(value) {
     return normalized;
   });
 
-  return {
-    interval: value.interval,
-    days
-  };
+  return { interval: value.interval, days };
 }
 
-async function readOpeningHours(
-  database = pool,
-  lock = false
-) {
+async function readOpeningHours(database = pool, lock = false) {
   const result = await database.query(
     'SELECT dados FROM configuracoes_agenda WHERE id = 1' +
     (lock ? ' FOR SHARE' : '')
   );
 
   if (!result.rowCount) {
-    throw new Error(
-      'Horários de atendimento não configurados.'
-    );
+    throw new Error('Horários de atendimento não configurados.');
   }
 
   return result.rows[0].dados;
 }
 
-async function assertOpeningSlot(
-  database,
-  date,
-  time
-) {
-  const settings = await readOpeningHours(
-    database,
-    true
-  );
+async function assertOpeningSlot(database, date, time) {
+  const settings = await readOpeningHours(database, true);
 
   if (
     openingWeekday(date) === null ||
@@ -468,7 +369,6 @@ async function assertOpeningSlot(
     );
 
     error.status = 400;
-
     throw error;
   }
 }
@@ -502,9 +402,7 @@ app.put(
   })
 );
 
-/* =========================================================
-   UPLOAD DE FOTOS
-========================================================= */
+// UPLOAD DE FOTOS
 
 const storage = multer.diskStorage({
   destination: (_req, _file, callback) => {
@@ -512,9 +410,7 @@ const storage = multer.diskStorage({
   },
 
   filename: (_req, file, callback) => {
-    const ext =
-      path.extname(file.originalname).toLowerCase() ||
-      '.jpg';
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
 
     const safeName =
       `${Date.now()}-` +
@@ -527,30 +423,19 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-
-  limits: {
-    fileSize: 5 * 1024 * 1024
-  },
+  limits: { fileSize: 5 * 1024 * 1024 },
 
   fileFilter: (_req, file, callback) => {
-    if (
-      /^image\/(jpeg|png|webp|gif)$/.test(file.mimetype)
-    ) {
+    if (/^image\/(jpeg|png|webp|gif)$/.test(file.mimetype)) {
       callback(null, true);
       return;
     }
 
-    callback(
-      new Error(
-        'A foto deve ser JPG, PNG, WEBP ou GIF.'
-      )
-    );
+    callback(new Error('A foto deve ser JPG, PNG, WEBP ou GIF.'));
   }
 });
 
-/* =========================================================
-   STATUS / HEALTH
-========================================================= */
+// STATUS
 
 app.get('/api/status', (_req, res) => {
   res.json({
@@ -571,18 +456,12 @@ app.get(
   })
 );
 
-/* =========================================================
-   AUTENTICAÇÃO
-========================================================= */
+// AUTENTICAÇÃO
 
 app.post(
   '/api/auth/login',
   asyncHandler(async (req, res) => {
-    const {
-      email,
-      password,
-      role
-    } = req.body || {};
+    const { email, password, role } = req.body || {};
 
     if (!email || !password || !role) {
       return res.status(400).json({
@@ -590,12 +469,8 @@ app.post(
       });
     }
 
-    if (
-      !['admin', 'funcionario'].includes(role)
-    ) {
-      return res.status(400).json({
-        error: 'Perfil inválido.'
-      });
+    if (!['admin', 'funcionario'].includes(role)) {
+      return res.status(400).json({ error: 'Perfil inválido.' });
     }
 
     const result = await pool.query(
@@ -607,20 +482,14 @@ app.post(
         AND ativo = true
       LIMIT 1
       `,
-      [
-        String(email).trim(),
-        role
-      ]
+      [String(email).trim(), role]
     );
 
     const user = result.rows[0];
 
     if (
       !user ||
-      !(await bcrypt.compare(
-        String(password),
-        user.senha_hash
-      ))
+      !(await bcrypt.compare(String(password), user.senha_hash))
     ) {
       return res.status(401).json({
         error: 'E-mail, perfil ou senha incorretos.'
@@ -653,37 +522,26 @@ app.post('/api/auth/logout', (_req, res) => {
     secure: process.env.NODE_ENV === 'production'
   });
 
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', auth, (req, res) => {
   res.json({
-    ok: true
+    user: {
+      id: req.user.id,
+      name: req.user.name,
+      role: req.user.role
+    }
   });
 });
 
-app.get(
-  '/api/auth/me',
-  auth,
-  (req, res) => {
-    res.json({
-      user: {
-        id: req.user.id,
-        name: req.user.name,
-        role: req.user.role
-      }
-    });
-  }
-);
-
-/* =========================================================
-   ALTERAÇÃO DE SENHA
-========================================================= */
+// ALTERAÇÃO DE SENHA
 
 app.put(
   '/api/auth/password',
   auth,
   asyncHandler(async (req, res) => {
-    const {
-      currentPassword,
-      newPassword
-    } = req.body || {};
+    const { currentPassword, newPassword } = req.body || {};
 
     if (!currentPassword || !newPassword) {
       return res.status(400).json({
@@ -693,8 +551,7 @@ app.put(
 
     if (String(newPassword).length < 6) {
       return res.status(400).json({
-        error:
-          'A nova senha deve ter pelo menos 6 caracteres.'
+        error: 'A nova senha deve ter pelo menos 6 caracteres.'
       });
     }
 
@@ -728,10 +585,7 @@ app.put(
       });
     }
 
-    const hash = await bcrypt.hash(
-      String(newPassword),
-      12
-    );
+    const hash = await bcrypt.hash(String(newPassword), 12);
 
     await pool.query(
       `
@@ -740,21 +594,14 @@ app.put(
           updated_at = NOW()
       WHERE id = $2
       `,
-      [
-        hash,
-        req.user.id
-      ]
+      [hash, req.user.id]
     );
 
-    res.json({
-      ok: true
-    });
+    res.json({ ok: true });
   })
 );
 
-/* =========================================================
-   PROCEDIMENTOS
-========================================================= */
+// PROCEDIMENTOS
 
 app.get(
   '/api/procedures',
@@ -779,9 +626,7 @@ app.get(
 );
 
 function procedurePrice(value) {
-  const text = String(value ?? '')
-    .trim()
-    .replace(',', '.');
+  const text = String(value ?? '').trim().replace(',', '.');
 
   if (!/^\d{1,8}(\.\d{1,2})?$/.test(text)) {
     return null;
@@ -794,19 +639,13 @@ function procedurePrice(value) {
     : null;
 }
 
-// Cadastra um procedimento ou reativa um procedimento removido.
 app.post(
   '/api/procedures',
   auth,
   requireAdmin,
   asyncHandler(async (req, res) => {
-    const name = String(
-      req.body?.name || ''
-    ).trim();
-
-    const price = procedurePrice(
-      req.body?.price
-    );
+    const name = String(req.body?.name || '').trim();
+    const price = procedurePrice(req.body?.price);
 
     if (!name || name.length > 150) {
       return res.status(400).json({
@@ -816,8 +655,7 @@ app.post(
 
     if (price === null) {
       return res.status(400).json({
-        error:
-          'Informe um valor de 0 a 99999999,99, com até duas casas decimais.'
+        error: 'Informe um valor de 0 a 99999999,99, com até duas casas decimais.'
       });
     }
 
@@ -825,26 +663,20 @@ app.post(
       `
       INSERT INTO procedimentos(nome, preco)
       VALUES($1, $2)
-
       ON CONFLICT (nome)
       DO UPDATE SET
         preco = EXCLUDED.preco,
         ativo = true,
         updated_at = NOW()
       WHERE procedimentos.ativo = false
-
       RETURNING id, nome, preco
       `,
-      [
-        name,
-        price
-      ]
+      [name, price]
     );
 
     if (!result.rowCount) {
       return res.status(409).json({
-        error:
-          'Este procedimento já está cadastrado. Use o botão Alterar valor.'
+        error: 'Este procedimento já está cadastrado. Use o botão Alterar valor.'
       });
     }
 
@@ -858,8 +690,6 @@ app.post(
   })
 );
 
-// Altera somente o preço padrão do procedimento.
-// Os valores dos agendamentos já registrados são preservados.
 app.patch(
   '/api/procedures/:id/price',
   auth,
@@ -876,14 +706,11 @@ app.patch(
       });
     }
 
-    const price = procedurePrice(
-      req.body?.price
-    );
+    const price = procedurePrice(req.body?.price);
 
     if (price === null) {
       return res.status(400).json({
-        error:
-          'Informe um valor de 0 a 99999999,99, com até duas casas decimais.'
+        error: 'Informe um valor de 0 a 99999999,99, com até duas casas decimais.'
       });
     }
 
@@ -896,10 +723,7 @@ app.patch(
         AND ativo = true
       RETURNING id, nome, preco
       `,
-      [
-        price,
-        id
-      ]
+      [price, id]
     );
 
     if (!result.rowCount) {
@@ -918,7 +742,7 @@ app.patch(
   })
 );
 
-// Remove da lista sem apagar o histórico de agendamentos.
+// Remover um procedimento preserva os agendamentos já realizados.
 app.delete(
   '/api/procedures/:id',
   auth,
@@ -945,23 +769,17 @@ app.delete(
       [id]
     );
 
-    res.json({
-      ok: true
-    });
+    res.json({ ok: true });
   })
 );
 
-/* =========================================================
-   CLIENTES
-========================================================= */
+// CLIENTES
 
 app.get(
   '/api/clients',
   auth,
   asyncHandler(async (req, res) => {
-    const q = String(
-      req.query.q || ''
-    ).trim();
+    const q = String(req.query.q || '').trim();
 
     const result = await pool.query(
       `
@@ -982,7 +800,7 @@ app.get(
       FROM clientes c
       LEFT JOIN agendamentos a
         ON a.cliente_id = c.id
-      WHERE c.ativo = true
+      WHERE (c.ativo = true OR $2::boolean)
         AND (
           $1 = ''
           OR c.nome ILIKE '%' || $1 || '%'
@@ -993,7 +811,7 @@ app.get(
         MAX(a.data) DESC NULLS LAST,
         c.nome
       `,
-      [q]
+      [q, req.user.role === 'admin']
     );
 
     res.json(
@@ -1012,17 +830,9 @@ app.post(
   auth,
   upload.single('photo'),
   asyncHandler(async (req, res) => {
-    const name = String(
-      req.body.name || ''
-    ).trim();
-
-    const phone = normalizePhone(
-      req.body.phone
-    );
-
-    const note = String(
-      req.body.note || ''
-    ).trim();
+    const name = String(req.body.name || '').trim();
+    const phone = normalizePhone(req.body.phone);
+    const note = String(req.body.note || '').trim();
 
     if (!name || !phone) {
       return res.status(400).json({
@@ -1036,44 +846,30 @@ app.post(
 
     const result = await pool.query(
       `
-      INSERT INTO clientes(
-        nome,
-        telefone,
-        foto_url,
-        observacao
-      )
+      INSERT INTO clientes(nome, telefone, foto_url, observacao)
       VALUES($1, $2, $3, $4)
-
       ON CONFLICT(telefone)
       DO UPDATE SET
         nome = EXCLUDED.nome,
-        foto_url = COALESCE(
-          EXCLUDED.foto_url,
-          clientes.foto_url
-        ),
+        foto_url = COALESCE(EXCLUDED.foto_url, clientes.foto_url),
         observacao = EXCLUDED.observacao,
         ativo = true,
         updated_at = NOW()
-
       RETURNING *
       `,
-      [
-        name,
-        phone,
-        photo,
-        note
-      ]
+      [name, phone, photo, note]
     );
 
-    res.status(201).json(
-      publicClient(result.rows[0])
-    );
+    res.status(201).json(publicClient(result.rows[0]));
   })
 );
+
+// EXCLUSÃO DEFINITIVA DO CLIENTE E DO HISTÓRICO VINCULADO
 
 app.delete(
   '/api/clients/:id',
   auth,
+  requireAdmin,
   asyncHandler(async (req, res) => {
     const clientId = String(req.params.id);
 
@@ -1086,53 +882,71 @@ app.delete(
       });
     }
 
-    const result = await pool.query(
-      `
-      UPDATE clientes
-      SET ativo = false,
-          updated_at = NOW()
-      WHERE id = $1
-      RETURNING id
-      `,
-      [clientId]
-    );
+    const client = await pool.connect();
 
-    if (!result.rowCount) {
-      return res.status(404).json({
-        error: 'Cliente não encontrado.'
-      });
+    try {
+      await client.query('BEGIN');
+
+      const result = await client.query(
+        'SELECT id FROM clientes WHERE id = $1 FOR UPDATE',
+        [clientId]
+      );
+
+      if (!result.rowCount) {
+        const error = new Error('Cliente não encontrado.');
+        error.status = 404;
+        throw error;
+      }
+
+      await client.query(
+        'SELECT id FROM agendamentos WHERE cliente_id = $1 FOR UPDATE',
+        [clientId]
+      );
+
+      await client.query(
+        `
+        DELETE FROM atendimentos
+        WHERE cliente_id = $1
+           OR agendamento_id IN (
+             SELECT id
+             FROM agendamentos
+             WHERE cliente_id = $1
+           )
+        `,
+        [clientId]
+      );
+
+      await client.query(
+        'DELETE FROM agendamentos WHERE cliente_id = $1',
+        [clientId]
+      );
+
+      await client.query(
+        'DELETE FROM clientes WHERE id = $1',
+        [clientId]
+      );
+
+      await client.query('COMMIT');
+      res.json({ ok: true });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
-
-    res.json({
-      ok: true
-    });
   })
 );
 
-/* =========================================================
-   FUNÇÃO AUXILIAR DE CLIENTE
-========================================================= */
+// FUNÇÃO AUXILIAR DE CLIENTE
 
 async function upsertClient(client, clientInfo) {
-  const name = String(
-    clientInfo.name || ''
-  ).trim();
-
-  const phone = normalizePhone(
-    clientInfo.phone
-  );
-
-  const note = String(
-    clientInfo.note || ''
-  ).trim();
+  const name = String(clientInfo.name || '').trim();
+  const phone = normalizePhone(clientInfo.phone);
+  const note = String(clientInfo.note || '').trim();
 
   if (!name || !phone) {
-    const error = new Error(
-      'Nome e telefone são obrigatórios.'
-    );
-
+    const error = new Error('Nome e telefone são obrigatórios.');
     error.status = 400;
-
     throw error;
   }
 
@@ -1140,21 +954,12 @@ async function upsertClient(client, clientInfo) {
 
   const result = await client.query(
     `
-    INSERT INTO clientes(
-      nome,
-      telefone,
-      foto_url,
-      observacao
-    )
+    INSERT INTO clientes(nome, telefone, foto_url, observacao)
     VALUES($1, $2, $3, $4)
-
     ON CONFLICT(telefone)
     DO UPDATE SET
       nome = EXCLUDED.nome,
-      foto_url = COALESCE(
-        EXCLUDED.foto_url,
-        clientes.foto_url
-      ),
+      foto_url = COALESCE(EXCLUDED.foto_url, clientes.foto_url),
       observacao =
         CASE
           WHEN EXCLUDED.observacao <> ''
@@ -1163,32 +968,21 @@ async function upsertClient(client, clientInfo) {
         END,
       ativo = true,
       updated_at = NOW()
-
     RETURNING *
     `,
-    [
-      name,
-      phone,
-      photo,
-      note
-    ]
+    [name, phone, photo, note]
   );
 
   return result.rows[0];
 }
 
-/* =========================================================
-   AGENDAMENTOS
-========================================================= */
+// AGENDAMENTOS
 
 app.get(
   '/api/appointments',
   auth,
   asyncHandler(async (req, res) => {
-    const date = String(
-      req.query.date || ''
-    );
-
+    const date = String(req.query.date || '');
     const params = [];
     let where = '';
 
@@ -1204,27 +998,71 @@ app.get(
         c.nome,
         c.telefone,
         p.nome AS procedimento
-
       FROM agendamentos a
-
-      JOIN clientes c
-        ON c.id = a.cliente_id
-
-      JOIN procedimentos p
-        ON p.id = a.procedimento_id
-
+      JOIN clientes c ON c.id = a.cliente_id
+      JOIN procedimentos p ON p.id = a.procedimento_id
       ${where}
-
-      ORDER BY
-        a.data,
-        a.hora
+      ORDER BY a.data, a.hora
       `,
       params
     );
 
-    res.json(
-      result.rows.map(publicAppointment)
-    );
+    res.json(result.rows.map(publicAppointment));
+  })
+);
+
+// EXCLUSÃO DEFINITIVA DE UM AGENDAMENTO
+
+app.delete(
+  '/api/appointments/:id',
+  auth,
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const appointmentId = String(req.params.id);
+
+    if (
+      !/^[1-9]\d*$/.test(appointmentId) ||
+      BigInt(appointmentId) > 9223372036854775807n
+    ) {
+      return res.status(400).json({
+        error: 'Identificador de agendamento inválido.'
+      });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      const result = await client.query(
+        'SELECT id FROM agendamentos WHERE id = $1 FOR UPDATE',
+        [appointmentId]
+      );
+
+      if (!result.rowCount) {
+        const error = new Error('Agendamento não encontrado.');
+        error.status = 404;
+        throw error;
+      }
+
+      await client.query(
+        'DELETE FROM atendimentos WHERE agendamento_id = $1',
+        [appointmentId]
+      );
+
+      await client.query(
+        'DELETE FROM agendamentos WHERE id = $1',
+        [appointmentId]
+      );
+
+      await client.query('COMMIT');
+      res.json({ ok: true });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   })
 );
 
@@ -1245,8 +1083,7 @@ app.post(
 
     if (!date || !time || !procedureId) {
       return res.status(400).json({
-        error:
-          'Data, horário e procedimento são obrigatórios.'
+        error: 'Data, horário e procedimento são obrigatórios.'
       });
     }
 
@@ -1254,46 +1091,30 @@ app.post(
 
     try {
       await client.query('BEGIN');
+      await assertOpeningSlot(client, date, time);
 
-      await assertOpeningSlot(
-        client,
-        date,
-        time
-      );
-
-      const customer = await upsertClient(
-        client,
-        {
-          name,
-          phone,
-          note
-        }
-      );
+      const customer = await upsertClient(client, {
+        name,
+        phone,
+        note
+      });
 
       const procedure = await client.query(
         `
         SELECT id, nome, preco
         FROM procedimentos
-        WHERE id = $1
-          AND ativo = true
+        WHERE id = $1 AND ativo = true
         `,
         [procedureId]
       );
 
       if (!procedure.rowCount) {
-        const error = new Error(
-          'Procedimento inválido.'
-        );
-
+        const error = new Error('Procedimento inválido.');
         error.status = 400;
-
         throw error;
       }
 
-      const value =
-        Number(
-          price ?? procedure.rows[0].preco
-        ) || 0;
+      const value = Number(price ?? procedure.rows[0].preco) || 0;
 
       const result = await client.query(
         `
@@ -1307,16 +1128,7 @@ app.post(
           observacao,
           criado_por
         )
-        VALUES(
-          $1,
-          $2,
-          $3,
-          $4,
-          $5,
-          $6,
-          $7,
-          $8
-        )
+        VALUES($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id
         `,
         [
@@ -1335,38 +1147,22 @@ app.post(
 
       const full = await pool.query(
         `
-        SELECT
-          a.*,
-          c.nome,
-          c.telefone,
-          p.nome AS procedimento
-
+        SELECT a.*, c.nome, c.telefone, p.nome AS procedimento
         FROM agendamentos a
-
-        JOIN clientes c
-          ON c.id = a.cliente_id
-
-        JOIN procedimentos p
-          ON p.id = a.procedimento_id
-
+        JOIN clientes c ON c.id = a.cliente_id
+        JOIN procedimentos p ON p.id = a.procedimento_id
         WHERE a.id = $1
         `,
         [result.rows[0].id]
       );
 
-      res.status(201).json(
-        publicAppointment(full.rows[0])
-      );
+      res.status(201).json(publicAppointment(full.rows[0]));
     } catch (error) {
       await client.query('ROLLBACK');
 
       if (error.code === '23505') {
-        const conflict = new Error(
-          'Este horário já está ocupado.'
-        );
-
+        const conflict = new Error('Este horário já está ocupado.');
         conflict.status = 409;
-
         throw conflict;
       }
 
@@ -1377,21 +1173,15 @@ app.post(
   })
 );
 
-/* =========================================================
-   HORÁRIOS PÚBLICOS
-========================================================= */
+// HORÁRIOS PÚBLICOS
 
 app.get(
   '/api/public/slots',
   asyncHandler(async (req, res) => {
-    const date = String(
-      req.query.date || ''
-    );
+    const date = String(req.query.date || '');
 
     if (openingWeekday(date) === null) {
-      return res.status(400).json({
-        error: 'Data inválida.'
-      });
+      return res.status(400).json({ error: 'Data inválida.' });
     }
 
     const settings = await readOpeningHours();
@@ -1412,16 +1202,12 @@ app.get(
     res.json({
       date,
       slots: openingSlots(settings, date),
-      taken: result.rows.map(
-        row => String(row.hora).slice(0, 5)
-      )
+      taken: result.rows.map(row => String(row.hora).slice(0, 5))
     });
   })
 );
 
-/* =========================================================
-   AGENDAMENTO PÚBLICO
-========================================================= */
+// AGENDAMENTO PÚBLICO
 
 app.post(
   '/api/public/bookings',
@@ -1436,16 +1222,9 @@ app.post(
       note = ''
     } = req.body || {};
 
-    if (
-      !name ||
-      !phone ||
-      !date ||
-      !time ||
-      !procedureId
-    ) {
+    if (!name || !phone || !date || !time || !procedureId) {
       return res.status(400).json({
-        error:
-          'Nome, telefone, data, horário e procedimento são obrigatórios.'
+        error: 'Nome, telefone, data, horário e procedimento são obrigatórios.'
       });
     }
 
@@ -1453,8 +1232,7 @@ app.post(
       `
       SELECT id, nome, preco
       FROM procedimentos
-      WHERE id = $1
-        AND ativo = true
+      WHERE id = $1 AND ativo = true
       `,
       [procedureId]
     );
@@ -1469,24 +1247,14 @@ app.post(
 
     try {
       await client.query('BEGIN');
+      await assertOpeningSlot(client, date, time);
 
-      await assertOpeningSlot(
-        client,
-        date,
-        time
-      );
-
-      const customer = await upsertClient(
-        client,
-        {
-          name,
-          phone,
-          note,
-          photo: req.file
-            ? `/uploads/${req.file.filename}`
-            : null
-        }
-      );
+      const customer = await upsertClient(client, {
+        name,
+        phone,
+        note,
+        photo: req.file ? `/uploads/${req.file.filename}` : null
+      });
 
       const result = await client.query(
         `
@@ -1499,15 +1267,7 @@ app.post(
           status,
           observacao
         )
-        VALUES(
-          $1,
-          $2,
-          $3,
-          $4,
-          $5,
-          'Agendado',
-          $6
-        )
+        VALUES($1, $2, $3, $4, $5, 'Agendado', $6)
         RETURNING id
         `,
         [
@@ -1526,8 +1286,7 @@ app.post(
         ok: true,
         id: result.rows[0].id,
         details:
-          `${procedure.rows[0].nome} ` +
-          `em ${date} às ` +
+          `${procedure.rows[0].nome} em ${date} às ` +
           `${String(time).slice(0, 5)}.`
       });
     } catch (error) {
@@ -1535,8 +1294,7 @@ app.post(
 
       if (error.code === '23505') {
         return res.status(409).json({
-          error:
-            'Esse horário acabou de ser ocupado. Escolha outro.'
+          error: 'Esse horário acabou de ser ocupado. Escolha outro.'
         });
       }
 
@@ -1547,9 +1305,7 @@ app.post(
   })
 );
 
-/* =========================================================
-   ALTERAÇÃO DE STATUS
-========================================================= */
+// ALTERAÇÃO DE STATUS
 
 app.patch(
   '/api/appointments/:id/status',
@@ -1565,9 +1321,7 @@ app.patch(
     ];
 
     if (!validStatuses.includes(status)) {
-      return res.status(400).json({
-        error: 'Status inválido.'
-      });
+      return res.status(400).json({ error: 'Status inválido.' });
     }
 
     const client = await pool.connect();
@@ -1583,19 +1337,12 @@ app.patch(
         WHERE id = $2
         RETURNING *
         `,
-        [
-          status,
-          req.params.id
-        ]
+        [status, req.params.id]
       );
 
       if (!result.rowCount) {
-        const error = new Error(
-          'Agendamento não encontrado.'
-        );
-
+        const error = new Error('Agendamento não encontrado.');
         error.status = 404;
-
         throw error;
       }
 
@@ -1613,16 +1360,7 @@ app.patch(
             observacao,
             atendido_por
           )
-          VALUES(
-            $1,
-            $2,
-            $3,
-            $4,
-            $5,
-            $6,
-            $7
-          )
-
+          VALUES($1, $2, $3, $4, $5, $6, $7)
           ON CONFLICT DO NOTHING
           `,
           [
@@ -1638,10 +1376,7 @@ app.patch(
       }
 
       await client.query('COMMIT');
-
-      res.json({
-        ok: true
-      });
+      res.json({ ok: true });
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -1651,9 +1386,7 @@ app.patch(
   })
 );
 
-/* =========================================================
-   RELATÓRIOS
-========================================================= */
+// RELATÓRIOS
 
 async function reportData(type, date, month, year) {
   let start;
@@ -1661,52 +1394,35 @@ async function reportData(type, date, month, year) {
   let label;
 
   if (type === 'month') {
-    const selectedMonth =
-      month ||
-      new Date().toISOString().slice(0, 7);
-
-    const [
-      selectedYear,
-      selectedMonthNumber
-    ] = selectedMonth.split('-').map(Number);
+    const selectedMonth = month || new Date().toISOString().slice(0, 7);
+    const [selectedYear, selectedMonthNumber] =
+      selectedMonth.split('-').map(Number);
 
     start =
       `${selectedYear}-` +
       `${String(selectedMonthNumber).padStart(2, '0')}-01`;
 
-    if (selectedMonthNumber === 12) {
-      end = `${selectedYear + 1}-01-01`;
-    } else {
-      end =
-        `${selectedYear}-` +
-        `${String(selectedMonthNumber + 1).padStart(2, '0')}-01`;
-    }
+    end =
+      selectedMonthNumber === 12
+        ? `${selectedYear + 1}-01-01`
+        : `${selectedYear}-${String(selectedMonthNumber + 1).padStart(2, '0')}-01`;
 
     label = `Mensal — ${selectedMonth}`;
   } else if (type === 'year') {
-    const selectedYear =
-      Number(year) || new Date().getFullYear();
+    const selectedYear = Number(year) || new Date().getFullYear();
 
     start = `${selectedYear}-01-01`;
     end = `${selectedYear + 1}-01-01`;
     label = `Anual — ${selectedYear}`;
   } else {
-    const selectedDate =
-      date ||
-      new Date().toISOString().slice(0, 10);
+    const selectedDate = date || new Date().toISOString().slice(0, 10);
 
     start = selectedDate;
 
-    const nextDay = new Date(
-      `${selectedDate}T00:00:00Z`
-    );
-
-    nextDay.setUTCDate(
-      nextDay.getUTCDate() + 1
-    );
+    const nextDay = new Date(`${selectedDate}T00:00:00Z`);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
 
     end = nextDay.toISOString().slice(0, 10);
-
     label = `Diário — ${selectedDate}`;
   }
 
@@ -1723,26 +1439,13 @@ async function reportData(type, date, month, year) {
       c.telefone,
       p.nome AS procedimento,
       c.observacao AS cliente_observacao
-
     FROM agendamentos a
-
-    JOIN clientes c
-      ON c.id = a.cliente_id
-
-    JOIN procedimentos p
-      ON p.id = a.procedimento_id
-
-    WHERE a.data >= $1
-      AND a.data < $2
-
-    ORDER BY
-      a.data,
-      a.hora
+    JOIN clientes c ON c.id = a.cliente_id
+    JOIN procedimentos p ON p.id = a.procedimento_id
+    WHERE a.data >= $1 AND a.data < $2
+    ORDER BY a.data, a.hora
     `,
-    [
-      start,
-      end
-    ]
+    [start, end]
   );
 
   const data = result.rows.map(row => ({
@@ -1750,31 +1453,16 @@ async function reportData(type, date, month, year) {
     valor: Number(row.valor)
   }));
 
-  const validData = data.filter(
-    row => row.status !== 'Cancelado'
-  );
-
-  const revenue = validData.reduce(
-    (total, row) => total + row.valor,
-    0
-  );
-
-  const attended = data.filter(
-    row => row.status === 'Atendido'
-  ).length;
-
-  const canceled = data.filter(
-    row => row.status === 'Cancelado'
-  ).length;
+  const validData = data.filter(row => row.status !== 'Cancelado');
+  const revenue = validData.reduce((total, row) => total + row.valor, 0);
+  const attended = data.filter(row => row.status === 'Atendido').length;
+  const canceled = data.filter(row => row.status === 'Cancelado').length;
 
   const pending = data.filter(
-    row =>
-      !['Atendido', 'Cancelado'].includes(row.status)
+    row => !['Atendido', 'Cancelado'].includes(row.status)
   ).length;
 
-  const ticket = validData.length
-    ? revenue / validData.length
-    : 0;
+  const ticket = validData.length ? revenue / validData.length : 0;
 
   return {
     data,
@@ -1795,18 +1483,11 @@ app.get(
   auth,
   requireAdmin,
   asyncHandler(async (_req, res) => {
-    const today = new Date()
-      .toISOString()
-      .slice(0, 10);
-
+    const today = new Date().toISOString().slice(0, 10);
     const month = today.slice(0, 7);
     const year = today.slice(0, 4);
 
-    const [
-      dayReport,
-      monthReport,
-      yearReport
-    ] = await Promise.all([
+    const [dayReport, monthReport, yearReport] = await Promise.all([
       reportData('day', today),
       reportData('month', null, month),
       reportData('year', null, null, year)
@@ -1825,20 +1506,18 @@ app.get(
   auth,
   requireAdmin,
   asyncHandler(async (req, res) => {
-    const result = await reportData(
-      req.query.type || 'month',
-      req.query.date,
-      req.query.month,
-      req.query.year
+    res.json(
+      await reportData(
+        req.query.type || 'month',
+        req.query.date,
+        req.query.month,
+        req.query.year
+      )
     );
-
-    res.json(result);
   })
 );
 
-/* =========================================================
-   RELATÓRIO PDF
-========================================================= */
+// RELATÓRIO PDF
 
 app.get(
   '/api/reports/pdf',
@@ -1852,74 +1531,33 @@ app.get(
       req.query.year
     );
 
-    const safeName = report.label.replace(
-      /[^a-z0-9_-]+/gi,
-      '_'
-    );
+    const safeName = report.label.replace(/[^a-z0-9_-]+/gi, '_');
 
-    res.setHeader(
-      'Content-Type',
-      'application/pdf'
-    );
-
+    res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="Relatorio_${safeName}.pdf"`
     );
 
-    const doc = new PDFDocument({
-      size: 'A4',
-      margin: 40
-    });
+    const doc = new PDFDocument({ size: 'A4', margin: 40 });
 
     doc.pipe(res);
-
-    doc
-      .fontSize(20)
-      .text('AgendaPro');
-
-    doc
-      .fontSize(10)
-      .text(
-        'Relatório de atendimentos e faturamento'
-      );
-
+    doc.fontSize(20).text('AgendaPro');
+    doc.fontSize(10).text('Relatório de atendimentos e faturamento');
+    doc.moveDown();
+    doc.fontSize(13).text(report.label);
     doc.moveDown();
 
-    doc
-      .fontSize(13)
-      .text(report.label);
-
-    doc.moveDown();
-
-    doc
-      .fontSize(10)
-      .text(
-        `Faturamento: R$ ${report.revenue
-          .toFixed(2)
-          .replace('.', ',')}`
-      );
-
-    doc.text(
-      `Registros: ${report.count}`
+    doc.fontSize(10).text(
+      `Faturamento: R$ ${report.revenue.toFixed(2).replace('.', ',')}`
     );
 
+    doc.text(`Registros: ${report.count}`);
+    doc.text(`Atendidos: ${report.attended}`);
+    doc.text(`Pendentes/Agendados: ${report.pending}`);
+    doc.text(`Cancelados: ${report.canceled}`);
     doc.text(
-      `Atendidos: ${report.attended}`
-    );
-
-    doc.text(
-      `Pendentes/Agendados: ${report.pending}`
-    );
-
-    doc.text(
-      `Cancelados: ${report.canceled}`
-    );
-
-    doc.text(
-      `Ticket médio: R$ ${report.ticket
-        .toFixed(2)
-        .replace('.', ',')}`
+      `Ticket médio: R$ ${report.ticket.toFixed(2).replace('.', ',')}`
     );
 
     doc.moveDown();
@@ -1931,73 +1569,43 @@ app.get(
         (procedures[appointment.procedimento] || 0) + 1;
     }
 
-    doc
-      .fontSize(13)
-      .text('Procedimentos');
-
+    doc.fontSize(13).text('Procedimentos');
     doc.fontSize(10);
 
     for (const [procedure, count] of Object.entries(procedures)) {
-      doc.text(
-        `${procedure}: ${count} atendimento(s)`
-      );
+      doc.text(`${procedure}: ${count} atendimento(s)`);
     }
 
     doc.moveDown();
-
-    doc
-      .fontSize(13)
-      .text('Atendimentos das clientes');
-
+    doc.fontSize(13).text('Atendimentos das clientes');
     doc.moveDown(0.5);
 
     if (!report.data.length) {
-      doc
-        .fontSize(10)
-        .text(
-          'Nenhum atendimento/agendamento encontrado no período.'
-        );
+      doc.fontSize(10).text(
+        'Nenhum atendimento/agendamento encontrado no período.'
+      );
     }
 
-    for (
-      let index = 0;
-      index < report.data.length;
-      index++
-    ) {
+    for (let index = 0; index < report.data.length; index++) {
       const appointment = report.data[index];
 
-      if (doc.y > 700) {
-        doc.addPage();
-      }
+      if (doc.y > 700) doc.addPage();
 
-      doc
-        .fontSize(10)
-        .text(
-          `${index + 1}. ${appointment.cliente}`
-        );
+      doc.fontSize(10).text(`${index + 1}. ${appointment.cliente}`);
 
-      doc
-        .fontSize(8.5)
-        .text(
-          `Data: ${new Date(
-            appointment.data + 'T12:00:00'
-          ).toLocaleDateString('pt-BR')}  Hora: ${String(
-            appointment.hora
-          ).slice(0, 5)}`
-        );
-
-      doc.text(
-        `Telefone/WhatsApp: ${appointment.telefone || '-'}`
+      doc.fontSize(8.5).text(
+        `Data: ${new Date(
+          appointment.data + 'T12:00:00'
+        ).toLocaleDateString('pt-BR')}  Hora: ${String(
+          appointment.hora
+        ).slice(0, 5)}`
       );
 
-      doc.text(
-        `Procedimento: ${appointment.procedimento}`
-      );
+      doc.text(`Telefone/WhatsApp: ${appointment.telefone || '-'}`);
+      doc.text(`Procedimento: ${appointment.procedimento}`);
 
       doc.text(
-        `Valor: R$ ${appointment.valor
-          .toFixed(2)
-          .replace('.', ',')}  ` +
+        `Valor: R$ ${appointment.valor.toFixed(2).replace('.', ',')}  ` +
         `Status: ${appointment.status}`
       );
 
@@ -2012,24 +1620,18 @@ app.get(
       doc.moveDown();
     }
 
-    doc
-      .fontSize(7)
-      .text(
-        `Gerado em ${new Date().toLocaleString('pt-BR')}`
-      );
+    doc.fontSize(7).text(
+      `Gerado em ${new Date().toLocaleString('pt-BR')}`
+    );
 
     doc.end();
   })
 );
 
-/* =========================================================
-   FRONTEND
-========================================================= */
+// FRONTEND
 
 app.get('/', (_req, res) => {
-  res.sendFile(
-    path.join(frontend, 'index.html')
-  );
+  res.sendFile(path.join(frontend, 'index.html'));
 });
 
 app.use((req, res, next) => {
@@ -2037,51 +1639,31 @@ app.use((req, res, next) => {
     return next();
   }
 
-  res.sendFile(
-    path.join(frontend, 'index.html')
-  );
+  res.sendFile(path.join(frontend, 'index.html'));
 });
 
-/* =========================================================
-   ERROS
-========================================================= */
+// ERROS
 
 app.use((error, _req, res, _next) => {
-  console.error(
-    'Erro no AgendaPro:',
-    error
-  );
+  console.error('Erro no AgendaPro:', error);
 
   const status = Number(error.status) || 500;
 
   res.status(status).json({
-    error:
-      error.message ||
-      'Erro interno do servidor.'
+    error: error.message || 'Erro interno do servidor.'
   });
 });
 
-/* =========================================================
-   BANCO DE DADOS
-========================================================= */
+// BANCO DE DADOS
 
 async function ensureSchema() {
-  const schemaPath = path.join(
-    __dirname,
-    '../sql/schema.sql'
-  );
+  const schemaPath = path.join(__dirname, '../sql/schema.sql');
 
   if (!fs.existsSync(schemaPath)) {
-    throw new Error(
-      `Arquivo schema.sql não encontrado em: ${schemaPath}`
-    );
+    throw new Error(`Arquivo schema.sql não encontrado em: ${schemaPath}`);
   }
 
-  const schema = fs.readFileSync(
-    schemaPath,
-    'utf8'
-  );
-
+  const schema = fs.readFileSync(schemaPath, 'utf8');
   await pool.query(schema);
 
   await pool.query(`
@@ -2101,53 +1683,22 @@ async function ensureSchema() {
     [JSON.stringify(defaultOpeningHours())]
   );
 
-  console.log(
-    '✅ Banco de dados verificado/preparado.'
-  );
+  console.log('✅ Banco de dados verificado/preparado.');
 }
 
-/* =========================================================
-   INICIALIZAÇÃO
-========================================================= */
+// INICIALIZAÇÃO
 
 async function startServer() {
   try {
     await ensureSchema();
 
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(
-        '========================================'
-      );
-
-      console.log(
-        `🚀 AgendaPro rodando na porta ${PORT}`
-      );
-
-      console.log(
-        `🌐 Ambiente: ${
-          process.env.NODE_ENV || 'development'
-        }`
-      );
-
-      console.log(
-        '========================================'
-      );
+      console.log(`🚀 AgendaPro rodando na porta ${PORT}`);
+      console.log(`🌐 Ambiente: ${process.env.NODE_ENV || 'development'}`);
     });
   } catch (error) {
-    console.error(
-      '========================================'
-    );
-
-    console.error(
-      'ERRO AO INICIAR O AGENDAPRO'
-    );
-
-    console.error(
-      '========================================'
-    );
-
+    console.error('ERRO AO INICIAR O AGENDAPRO');
     console.error(error);
-
     process.exit(1);
   }
 }
