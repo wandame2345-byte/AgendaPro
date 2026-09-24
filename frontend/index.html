@@ -2,8 +2,8 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#f8ebe6">
 <title>AgendaPro • Salão de Beleza</title>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -31,6 +31,11 @@
   box-sizing:border-box;
 }
 
+html {
+  -webkit-text-size-adjust:100%;
+  scroll-padding-top:16px;
+}
+
 body {
   margin:0;
   font-family:Inter,Segoe UI,Arial,sans-serif;
@@ -38,21 +43,37 @@ body {
   color:var(--text);
 }
 
-button,
-input,
-select,
-textarea {
+button,input,select,textarea {
   font:inherit;
 }
 
 button {
   cursor:pointer;
   border:0;
+  touch-action:manipulation;
+}
+
+button,a,input,select,textarea {
+  -webkit-tap-highlight-color:transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline:3px solid var(--primary2);
+  outline-offset:3px;
+}
+
+img {
+  max-width:100%;
 }
 
 .app {
   display:flex;
   min-height:100vh;
+  min-height:100dvh;
 }
 
 .sidebar {
@@ -63,10 +84,13 @@ button {
   position:fixed;
   top:0;
   bottom:0;
+  left:0;
   border-right:1px solid var(--sbar-border);
   display:flex;
   flex-direction:column;
   justify-content:space-between;
+  overflow-y:auto;
+  overscroll-behavior:contain;
 }
 
 .logo {
@@ -76,7 +100,8 @@ button {
   color:var(--text);
 }
 
-.logo span {
+.logo span,
+.authLogo span {
   color:var(--primary2);
 }
 
@@ -86,6 +111,7 @@ button {
   justify-content:center;
   gap:6px;
   width:100%;
+  min-height:44px;
   padding:10px 12px;
   background:#25d366;
   color:#fff;
@@ -95,16 +121,18 @@ button {
   text-decoration:none;
   margin-bottom:16px;
   box-shadow:0 2px 6px #25d36633;
-  transition:background .2s;
 }
 
 .btn-help:hover {
   background:#1ebe57;
 }
 
-.nav button {
+.nav button,
+.navConfig,
+.navLogout {
   display:block;
   width:100%;
+  min-height:44px;
   text-align:left;
   background:transparent;
   color:var(--sbar-text);
@@ -114,39 +142,53 @@ button {
 }
 
 .nav button:hover,
-.nav button.active {
-  background:var(--sbar-active-bg);
-  color:var(--sbar-active-text);
-}
-
-.navConfig {
-  display:block;
-  width:100%;
-  text-align:left;
-  background:transparent;
-  color:var(--sbar-text);
-  padding:13px 14px;
-  border-radius:10px;
-  margin:4px 0 10px;
-}
-
+.nav button.active,
 .navConfig:hover,
 .navConfig.active {
   background:var(--sbar-active-bg);
   color:var(--sbar-active-text);
 }
 
+.navConfig {
+  margin-bottom:10px;
+}
+
+.navLogout {
+  color:#a8394f;
+  font-weight:700;
+}
+
+.navLogout:hover {
+  background:#f6d3d9;
+}
+
 .main {
   margin-left:245px;
   width:calc(100% - 245px);
+  min-width:0;
   padding:26px;
   max-width:1500px;
+}
+
+.section,
+.panel,
+.card,
+.grid > *,
+.cards > *,
+.report-grid > *,
+.field,
+.top > *,
+.clientWrap,
+.clientCard,
+.modal-box {
+  min-width:0;
 }
 
 .top {
   display:flex;
   justify-content:space-between;
   align-items:center;
+  gap:16px;
   margin-bottom:24px;
 }
 
@@ -158,12 +200,16 @@ button {
 .subtitle {
   color:var(--muted);
   margin-top:5px;
+  line-height:1.5;
+  overflow-wrap:anywhere;
 }
 
 .btn {
+  min-height:44px;
   padding:11px 16px;
   border-radius:9px;
   font-weight:700;
+  line-height:1.3;
 }
 
 .primary {
@@ -192,9 +238,13 @@ button {
 
 .cards {
   display:grid;
-  grid-template-columns:repeat(4,1fr);
+  grid-template-columns:repeat(4,minmax(0,1fr));
   gap:16px;
   margin-bottom:20px;
+}
+
+.cards.cols-3 {
+  grid-template-columns:repeat(3,minmax(0,1fr));
 }
 
 .card {
@@ -208,23 +258,26 @@ button {
 .card .label {
   color:var(--muted);
   font-size:13px;
+  line-height:1.4;
 }
 
 .card .value {
   font-size:26px;
   font-weight:800;
   margin-top:8px;
+  overflow-wrap:anywhere;
 }
 
 .card .small {
   font-size:12px;
   color:var(--muted);
   margin-top:6px;
+  line-height:1.4;
 }
 
 .grid {
   display:grid;
-  grid-template-columns:1.45fr .9fr;
+  grid-template-columns:minmax(0,1.45fr) minmax(0,.9fr);
   gap:20px;
 }
 
@@ -238,10 +291,15 @@ button {
 .panel h2 {
   font-size:17px;
   margin:0 0 16px;
+  overflow-wrap:anywhere;
 }
 
 .table-wrap {
-  overflow:auto;
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
 }
 
 table {
@@ -250,8 +308,7 @@ table {
   min-width:650px;
 }
 
-th,
-td {
+th,td {
   text-align:left;
   padding:13px 10px;
   border-bottom:1px solid var(--border);
@@ -264,12 +321,17 @@ th {
   text-transform:uppercase;
 }
 
+td {
+  overflow-wrap:break-word;
+}
+
 .badge {
   display:inline-block;
   padding:5px 8px;
   border-radius:20px;
   font-size:11px;
   font-weight:700;
+  white-space:nowrap;
 }
 
 .b-agendado {
@@ -294,17 +356,20 @@ th {
 
 .slots {
   display:grid;
-  grid-template-columns:repeat(4,1fr);
+  grid-template-columns:repeat(4,minmax(0,1fr));
   gap:10px;
 }
 
 .slot {
+  min-width:0;
+  min-height:72px;
   padding:13px;
   border:1px solid var(--border);
   border-radius:10px;
   background:#fafafa;
   cursor:pointer;
-  transition:all .15s;
+  overflow-wrap:anywhere;
+  touch-action:manipulation;
 }
 
 .slot strong {
@@ -343,7 +408,8 @@ th {
   align-items:center;
   justify-content:center;
   padding:20px;
-  z-index:10;
+  z-index:100;
+  overflow-y:auto;
 }
 
 .modal.show {
@@ -354,22 +420,30 @@ th {
   background:#fff;
   width:min(650px,100%);
   max-height:90vh;
-  overflow:auto;
+  max-height:90dvh;
+  overflow-y:auto;
   border-radius:16px;
   padding:24px;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
 }
 
 .modal-head {
   display:flex;
   justify-content:space-between;
   align-items:center;
+  gap:12px;
 }
 
 .modal-head h2 {
   margin:0;
+  overflow-wrap:anywhere;
 }
 
 .close {
+  flex-shrink:0;
+  min-width:44px;
+  min-height:44px;
   background:#f6e6e2;
   color:#7a4a52;
   border-radius:8px;
@@ -378,7 +452,7 @@ th {
 
 .form {
   display:grid;
-  grid-template-columns:1fr 1fr;
+  grid-template-columns:repeat(2,minmax(0,1fr));
   gap:14px;
   margin-top:18px;
 }
@@ -389,22 +463,29 @@ th {
   gap:6px;
 }
 
-.field.full {
+.field.full,
+.form-actions.full {
   grid-column:1/-1;
 }
 
 .field label {
   font-size:13px;
   font-weight:700;
+  line-height:1.4;
 }
 
 .field input,
 .field select,
 .field textarea {
+  width:100%;
+  min-width:0;
+  max-width:100%;
+  min-height:44px;
   padding:11px;
   border:1px solid #ecd7d5;
   border-radius:9px;
-  outline:none;
+  background:#fff;
+  color:var(--text);
 }
 
 .field input:focus,
@@ -421,6 +502,7 @@ textarea {
 .form-actions {
   display:flex;
   justify-content:flex-end;
+  flex-wrap:wrap;
   gap:9px;
   margin-top:18px;
 }
@@ -437,11 +519,12 @@ textarea {
   text-align:center;
   color:var(--muted);
   padding:35px;
+  line-height:1.5;
 }
 
 .report-grid {
   display:grid;
-  grid-template-columns:repeat(3,1fr);
+  grid-template-columns:repeat(3,minmax(0,1fr));
   gap:16px;
 }
 
@@ -468,10 +551,14 @@ textarea {
 
 .filters input,
 .filters select {
+  min-width:0;
+  max-width:100%;
+  min-height:44px;
   padding:10px;
   border:1px solid var(--border);
   border-radius:9px;
   background:#fff;
+  color:var(--text);
 }
 
 .photo-preview {
@@ -492,10 +579,6 @@ textarea {
   margin-right:8px;
 }
 
-.cards.cols-3 {
-  grid-template-columns:repeat(3,1fr);
-}
-
 .sidebarFooter {
   padding-top:14px;
   border-top:1px solid var(--sbar-border);
@@ -508,37 +591,33 @@ textarea {
   font-weight:700;
 }
 
-.navLogout {
-  display:block;
-  width:100%;
-  text-align:left;
-  background:transparent;
-  color:#a8394f;
-  padding:12px 14px;
-  border-radius:10px;
-  font-weight:700;
-}
-
-.navLogout:hover {
-  background:#f6d3d9;
+.sidebarCredits {
+  font-size:11px;
+  text-align:center;
+  color:var(--muted);
+  padding-top:10px;
+  line-height:1.4;
 }
 
 .authWrap {
   position:fixed;
   inset:0;
   display:flex;
-  align-items:center;
+  align-items:flex-start;
   justify-content:center;
   background:linear-gradient(135deg,#fbe6e2,#f2c4cd);
   padding:20px;
-  z-index:5;
+  overflow-y:auto;
+  z-index:50;
 }
 
 .authBox {
+  margin:auto;
   background:#fff;
   border-radius:18px;
   padding:32px;
   width:min(420px,100%);
+  min-width:0;
   box-shadow:0 20px 60px #7a4a5225;
 }
 
@@ -550,19 +629,17 @@ textarea {
   color:var(--text);
 }
 
-.authLogo span {
-  color:var(--primary2);
-}
-
 .authSub {
   color:var(--muted);
   text-align:center;
   margin-bottom:20px;
+  overflow-wrap:anywhere;
 }
 
 .roleBtn {
   display:block;
   width:100%;
+  min-height:64px;
   text-align:left;
   padding:16px;
   border:1px solid var(--border);
@@ -599,6 +676,7 @@ textarea {
 
 .clientPage {
   min-height:100vh;
+  min-height:100dvh;
   background:var(--bg);
   padding:24px;
 }
@@ -612,6 +690,7 @@ textarea {
   display:flex;
   justify-content:space-between;
   align-items:center;
+  gap:12px;
   margin-bottom:20px;
 }
 
@@ -638,7 +717,7 @@ textarea {
 }
 
 .btn-sm {
-  padding:5px 9px;
+  padding:7px 10px;
   font-size:12px;
   border-radius:6px;
   margin:2px 0;
@@ -653,123 +732,475 @@ textarea {
   justify-content:flex-end;
 }
 
-@media(max-width:950px) {
+.tableHint {
+  display:none;
+}
+
+.mb-20 {
+  margin-bottom:20px;
+}
+
+.mt-14 {
+  margin-top:14px;
+}
+
+/* TABLETS */
+
+@media (min-width:761px) and (max-width:1100px) {
   .sidebar {
-    width:75px;
-    padding:15px 8px;
-  }
-
-  .logo {
-    font-size:0;
-    text-align:center;
-  }
-
-  .logo:first-letter {
-    font-size:22px;
-  }
-
-  .btn-help {
-    font-size:0;
-    padding:10px 0;
-    justify-content:center;
-  }
-
-  .btn-help:before {
-    content:"💬";
-    font-size:16px;
-  }
-
-  .nav button {
-    font-size:0;
-    text-align:center;
-  }
-
-  .nav button:first-letter {
-    font-size:19px;
-  }
-
-  .navConfig {
-    font-size:0;
-    text-align:center;
-  }
-
-  .navConfig:first-letter {
-    font-size:19px;
+    width:210px;
+    padding:20px 12px;
   }
 
   .main {
-    margin-left:75px;
-    width:calc(100% - 75px);
+    margin-left:210px;
+    width:calc(100% - 210px);
+    padding:20px;
   }
 
-  .cards {
-    grid-template-columns:repeat(2,1fr);
+  .cards,
+  .cards.cols-3 {
+    grid-template-columns:repeat(2,minmax(0,1fr));
   }
 
   .grid {
-    grid-template-columns:1fr;
-  }
-
-  .userTag {
-    font-size:0;
-    padding:8px 4px;
-    text-align:center;
-  }
-
-  .userTag:first-letter {
-    font-size:15px;
-  }
-
-  .navLogout {
-    font-size:0;
-    text-align:center;
-  }
-
-  .navLogout:first-letter {
-    font-size:16px;
-  }
-}
-
-@media(max-width:600px) {
-  .main {
-    padding:15px;
+    grid-template-columns:minmax(0,1fr);
   }
 
   .top {
-    align-items:flex-start;
-    gap:10px;
-  }
-
-  .top h1 {
-    font-size:22px;
-  }
-
-  .cards {
-    grid-template-columns:1fr 1fr;
-  }
-
-  .form {
-    grid-template-columns:1fr;
-  }
-
-  .field.full {
-    grid-column:auto;
-  }
-
-  .report-grid {
-    grid-template-columns:1fr;
-  }
-
-  .slots {
-    grid-template-columns:repeat(2,1fr);
+    flex-wrap:wrap;
   }
 
   .report-downloads {
     justify-content:flex-start;
   }
 
+  .report-grid {
+    gap:10px;
+  }
+
+  .report-grid .card {
+    padding:14px;
+  }
+
+  .slots {
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+}
+
+/* CELULARES */
+
+@media (max-width:760px) {
+  input,
+  select,
+  textarea {
+    font-size:16px;
+  }
+
+  .app {
+    flex-direction:column;
+    width:100%;
+  }
+
+  .sidebar {
+    position:relative;
+    top:auto;
+    bottom:auto;
+    left:auto;
+    width:100%;
+    padding:12px;
+    padding-top:max(12px,env(safe-area-inset-top));
+    padding-left:max(12px,env(safe-area-inset-left));
+    padding-right:max(12px,env(safe-area-inset-right));
+    border-right:0;
+    border-bottom:1px solid var(--sbar-border);
+    overflow:visible;
+    gap:10px;
+  }
+
+  .sidebarTop {
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    align-items:center;
+    gap:10px;
+  }
+
+  .logo {
+    padding:0;
+    font-size:21px;
+  }
+
+  .btn-help {
+    width:auto;
+    max-width:150px;
+    margin:0;
+    padding:10px;
+    font-size:12px;
+  }
+
+  .nav {
+    grid-column:1/-1;
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:6px;
+  }
+
+  .nav button {
+    width:100%;
+    min-height:48px;
+    margin:0;
+    padding:10px 6px;
+    text-align:center;
+    font-size:13px;
+    font-weight:600;
+    line-height:1.35;
+    overflow-wrap:anywhere;
+    border:1px solid var(--sbar-border);
+  }
+
+  .sidebarFooter {
+    display:flex;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:6px;
+    padding-top:10px;
+  }
+
+  .userTag {
+    flex:1 1 110px;
+    padding:6px 0;
+    font-size:12px;
+  }
+
+  .navConfig,
+  .navLogout {
+    width:auto;
+    min-height:44px;
+    margin:0;
+    padding:10px;
+    font-size:13px;
+  }
+
+  .sidebarCredits {
+    display:none;
+  }
+
+  .main {
+    margin-left:0;
+    width:100%;
+    max-width:none;
+    padding:18px 12px;
+    padding-left:max(12px,env(safe-area-inset-left));
+    padding-right:max(12px,env(safe-area-inset-right));
+    padding-bottom:max(24px,env(safe-area-inset-bottom));
+  }
+
+  .top {
+    flex-direction:column;
+    align-items:stretch;
+    gap:14px;
+    margin-bottom:18px;
+  }
+
+  .top h1 {
+    font-size:24px;
+  }
+
+  .subtitle {
+    font-size:14px;
+  }
+
+  .top > .btn {
+    width:100%;
+  }
+
+  .cards,
+  .cards.cols-3 {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:10px;
+    margin-bottom:14px;
+  }
+
+  .card {
+    padding:14px;
+  }
+
+  .card .label {
+    font-size:12px;
+  }
+
+  .card .value {
+    font-size:22px;
+    line-height:1.25;
+  }
+
+  .grid {
+    grid-template-columns:minmax(0,1fr);
+    gap:14px;
+  }
+
+  .panel {
+    padding:15px;
+    border-radius:12px;
+  }
+
+  .panel h2 {
+    font-size:16px;
+    line-height:1.4;
+  }
+
+  .report-grid {
+    grid-template-columns:minmax(0,1fr);
+    gap:10px;
+  }
+
+  .filters {
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:10px;
+  }
+
+  .filters input,
+  .filters select,
+  .filters .btn {
+    width:100%;
+    min-width:0;
+    min-height:46px;
+  }
+
+  .filters input:not([type="date"]) {
+    grid-column:1/-1;
+  }
+
+  #clientes .filters > .btn,
+  #procedimentos .filters > .btn {
+    grid-column:1/-1;
+  }
+
+  .slots {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:9px;
+  }
+
+  .slot {
+    padding:12px;
+    min-height:84px;
+    font-size:14px;
+  }
+
+  .slot strong {
+    font-size:16px;
+    margin-bottom:4px;
+  }
+
+  .slot small {
+    font-size:12px;
+    line-height:1.35;
+  }
+
+  .tableHint {
+    display:block;
+    margin:0 0 10px;
+    font-size:12px;
+    color:var(--muted);
+  }
+
+  .table-wrap {
+    border-radius:8px;
+  }
+
+  th,td {
+    padding:12px 9px;
+  }
+
+  .btn-sm {
+    min-height:44px;
+    padding:10px 12px;
+    font-size:13px;
+  }
+
+  .empty {
+    padding:24px 10px;
+    font-size:14px;
+  }
+
+  .form {
+    grid-template-columns:minmax(0,1fr);
+    gap:14px;
+  }
+
+  .form-actions {
+    width:100%;
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+  }
+
+  .form-actions .btn {
+    flex:1 1 120px;
+  }
+
+  .field input,
+  .field select,
+  .field textarea {
+    min-height:48px;
+    font-size:16px;
+  }
+
+  .field input[type="file"] {
+    font-size:14px;
+    padding:9px;
+  }
+
+  .field input[type="file"]::file-selector-button {
+    min-height:36px;
+    max-width:100%;
+    border:0;
+    border-radius:6px;
+    padding:6px 8px;
+    margin-right:8px;
+    background:#f6e6e2;
+    color:var(--text);
+  }
+
+  .modal {
+    padding:10px;
+    padding-top:max(10px,env(safe-area-inset-top));
+    padding-bottom:max(10px,env(safe-area-inset-bottom));
+  }
+
+  .modal-box {
+    width:100%;
+    max-height:calc(100vh - 40px);
+    max-height:calc(
+      100dvh - 24px -
+      env(safe-area-inset-top) -
+      env(safe-area-inset-bottom)
+    );
+    padding:18px 15px;
+    border-radius:14px;
+  }
+
+  .modal-head h2 {
+    font-size:20px;
+  }
+
+  .authWrap {
+    padding:16px;
+    padding-top:max(16px,env(safe-area-inset-top));
+    padding-bottom:max(16px,env(safe-area-inset-bottom));
+  }
+
+  .authBox {
+    padding:24px 20px;
+  }
+
+  .clientPage {
+    padding:16px 12px;
+    padding-top:max(16px,env(safe-area-inset-top));
+    padding-bottom:max(20px,env(safe-area-inset-bottom));
+  }
+
+  .clientHeader {
+    margin-bottom:16px;
+  }
+
+  .clientHeader .authLogo {
+    font-size:22px;
+    text-align:left;
+    margin:0;
+  }
+
+  .clientCard {
+    padding:20px 15px;
+  }
+
+  .clientCard h1 {
+    font-size:24px;
+  }
+
+  .report-downloads {
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    width:100%;
+    gap:8px;
+  }
+
   .report-downloads .btn {
     width:100%;
+    min-height:46px;
+  }
+
+  #editAvailableHours {
+    width:100%;
+    min-height:46px;
+  }
+
+  #openingHoursPanel #openingHoursDays {
+    grid-template-columns:minmax(0,1fr);
+  }
+
+  #openingHoursPanel .attendance-row {
+    min-width:0;
+    align-items:center;
+  }
+
+  #openingHoursPanel .attendance-row input {
+    min-height:46px;
+    font-size:16px;
+  }
+
+  #openingHoursPanel .opening-actions {
+    flex-direction:column;
+  }
+
+  #openingHoursPanel .opening-actions button {
+    width:100%;
+    min-height:46px;
+  }
+
+  #openingHoursPanel .attendance-row button {
+    flex-shrink:0;
+    min-height:44px;
+  }
+}
+
+@media (max-width:380px) {
+  .sidebarTop {
+    grid-template-columns:minmax(0,1fr);
+  }
+
+  .logo {
+    text-align:center;
+  }
+
+  .btn-help {
+    width:100%;
+    max-width:none;
+  }
+
+  .nav {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+
+  .cards,
+  .cards.cols-3 {
+    grid-template-columns:minmax(0,1fr);
+  }
+
+  .filters {
+    grid-template-columns:minmax(0,1fr);
+  }
+
+  .userTag {
+    flex-basis:100%;
+    text-align:center;
+  }
+
+  .navConfig,
+  .navLogout {
+    flex:1 1 auto;
+    text-align:center;
   }
 }
 </style>
@@ -779,413 +1210,215 @@ textarea {
 
 <div class="authWrap" id="authScreen">
   <div class="authBox">
-    <div class="authLogo">
-      ✂️ Agenda<span>Pro</span>
-    </div>
+    <div class="authLogo">✂️ Agenda<span>Pro</span></div>
 
     <div id="roleSelect">
-      <p class="authSub">
-        Como você quer entrar?
-      </p>
+      <p class="authSub">Como você quer entrar?</p>
 
-      <button
-        type="button"
-        class="roleBtn"
-        onclick="selectRole('admin')"
-      >
+      <button type="button" class="roleBtn" onclick="selectRole('admin')">
         👑 Administrador
-
-        <span class="roleDesc">
-          Acesso completo ao sistema
-        </span>
+        <span class="roleDesc">Acesso completo ao sistema</span>
       </button>
 
-      <button
-        type="button"
-        class="roleBtn"
-        onclick="selectRole('funcionario')"
-      >
+      <button type="button" class="roleBtn" onclick="selectRole('funcionario')">
         👤 Funcionário
-
-        <span class="roleDesc">
-          Agenda, clientes e atendimentos
-        </span>
+        <span class="roleDesc">Agenda, clientes e atendimentos</span>
       </button>
 
-      <button
-        type="button"
-        class="roleBtn"
-        onclick="selectRole('cliente')"
-      >
+      <button type="button" class="roleBtn" onclick="selectRole('cliente')">
         📱 Sou cliente
-
-        <span class="roleDesc">
-          Marcar meu horário
-        </span>
+        <span class="roleDesc">Marcar meu horário</span>
       </button>
     </div>
 
-    <form
-      id="loginForm"
-      class="loginForm"
-      style="display:none"
-    >
-      <p
-        class="authSub"
-        id="loginRoleLabel"
-      ></p>
+    <form id="loginForm" class="loginForm" style="display:none">
+      <p class="authSub" id="loginRoleLabel"></p>
 
       <div class="field">
-        <label>Senha de acesso</label>
-
+        <label for="loginPassword">Senha de acesso</label>
         <input
           type="password"
           id="loginPassword"
           required
+          autocomplete="current-password"
           placeholder="Digite a senha"
         >
       </div>
 
-      <div
-        class="loginError"
-        id="loginError"
-      ></div>
+      <div class="loginError" id="loginError" role="alert"></div>
 
       <div class="form-actions">
-        <button
-          type="button"
-          class="btn secondary"
-          onclick="backToRoles()"
-        >
+        <button type="button" class="btn secondary" onclick="backToRoles()">
           Voltar
         </button>
-
-        <button class="btn primary">
-          Entrar
-        </button>
+        <button type="submit" class="btn primary">Entrar</button>
       </div>
     </form>
   </div>
 </div>
 
-<div
-  class="app"
-  id="app"
-  style="display:none"
->
+<div class="app" id="app" style="display:none">
   <aside class="sidebar">
-    <div>
-      <div class="logo">
-        ✂️ Agenda<span>Pro</span>
-      </div>
+    <div class="sidebarTop">
+      <div class="logo">✂️ Agenda<span>Pro</span></div>
 
       <a
         href="https://wa.me/5585991021170"
         target="_blank"
+        rel="noopener noreferrer"
         class="btn-help"
       >
         💬 Precisa de ajuda?
       </a>
 
-      <div class="nav"></div>
+      <nav class="nav" aria-label="Menu principal"></nav>
     </div>
 
     <div class="sidebarFooter">
-      <div
-        class="userTag"
-        id="userTag"
-      ></div>
+      <div class="userTag" id="userTag"></div>
 
-      <button
-        type="button"
-        class="navConfig"
-        id="configNavBtn"
-      >
+      <button type="button" class="navConfig" id="configNavBtn">
         ⚙️ Configurações
       </button>
 
-      <button
-        type="button"
-        class="navLogout"
-        onclick="logout()"
-      >
+      <button type="button" class="navLogout" onclick="logout()">
         🚪 Sair
       </button>
 
-      <div
-        style="
-          font-size:11px;
-          text-align:center;
-          color:var(--muted);
-          padding-top:10px;
-          line-height:1.4
-        "
-      >
+      <div class="sidebarCredits">
         © 2026 Sistema. All rights reserved.
         <br>
-        Made with ❤ and ☕ by
-        <b>Wandame Aguiar</b>
+        Made with ❤ and ☕ by <b>Wandame Aguiar</b>
       </div>
     </div>
   </aside>
 
   <main class="main">
 
-    <section
-      id="dashboard"
-      class="section active"
-    >
+    <section id="dashboard" class="section active">
       <div class="top">
         <div>
           <h1>Dashboard</h1>
-
-          <div
-            class="subtitle"
-            id="todayLabel"
-          ></div>
+          <div class="subtitle" id="todayLabel"></div>
         </div>
 
-        <button
-          class="btn primary"
-          onclick="openModal()"
-        >
+        <button type="button" class="btn primary" onclick="openModal()">
           + Novo agendamento
         </button>
       </div>
 
-      <div
-        class="cards"
-        id="dashCards"
-      >
+      <div class="cards" id="dashCards">
         <div class="card">
-          <div class="label">
-            Faturamento hoje
-          </div>
-
-          <div
-            class="value"
-            id="todayRevenue"
-          >
-            R$ 0,00
-          </div>
-
-          <div
-            class="small"
-            id="todayCount"
-          >
-            0 atendimentos
-          </div>
+          <div class="label">Faturamento hoje</div>
+          <div class="value" id="todayRevenue">R$ 0,00</div>
+          <div class="small" id="todayCount">0 atendimentos</div>
         </div>
 
         <div class="card">
-          <div class="label">
-            Faturamento da semana
-          </div>
-
-          <div
-            class="value"
-            id="weekRevenue"
-          >
-            R$ 0,00
-          </div>
-
-          <div
-            class="small"
-            id="weekCount"
-          >
-            0 atendimentos
-          </div>
+          <div class="label">Faturamento da semana</div>
+          <div class="value" id="weekRevenue">R$ 0,00</div>
+          <div class="small" id="weekCount">0 atendimentos</div>
         </div>
 
-        <div
-          class="card"
-          id="monthCardWrap"
-        >
-          <div class="label">
-            Faturamento do mês
-          </div>
-
-          <div
-            class="value"
-            id="monthRevenue"
-          >
-            R$ 0,00
-          </div>
-
-          <div
-            class="small"
-            id="monthCount"
-          >
-            0 atendimentos
-          </div>
+        <div class="card" id="monthCardWrap">
+          <div class="label">Faturamento do mês</div>
+          <div class="value" id="monthRevenue">R$ 0,00</div>
+          <div class="small" id="monthCount">0 atendimentos</div>
         </div>
 
         <div class="card">
-          <div class="label">
-            Horários livres hoje
-          </div>
-
-          <div
-            class="value"
-            id="freeCount"
-          >
-            0
-          </div>
-
-          <div class="small">
-            considerando os horários configurados
-          </div>
+          <div class="label">Horários livres hoje</div>
+          <div class="value" id="freeCount">0</div>
+          <div class="small">considerando os horários configurados</div>
         </div>
       </div>
 
-      <div
-        class="panel"
-        style="margin-bottom:20px"
-      >
+      <div class="panel mb-20">
         <h2>🔎 Filtrar por período</h2>
 
         <div class="filters">
-          <input
-            type="date"
-            id="dashFilterStart"
-          >
+          <input type="date" id="dashFilterStart" aria-label="Data inicial">
+          <input type="date" id="dashFilterEnd" aria-label="Data final">
 
-          <input
-            type="date"
-            id="dashFilterEnd"
-          >
-
-          <button
-            type="button"
-            class="btn primary"
-            onclick="applyDashboardFilter()"
-          >
+          <button type="button" class="btn primary" onclick="applyDashboardFilter()">
             Filtrar
           </button>
 
-          <button
-            type="button"
-            class="btn secondary"
-            onclick="clearDashboardFilter()"
-          >
+          <button type="button" class="btn secondary" onclick="clearDashboardFilter()">
             Limpar
           </button>
         </div>
 
-        <div
-          class="report-grid"
-          id="dashFilterCards"
-          style="display:none"
-        >
+        <div class="report-grid" id="dashFilterCards" style="display:none">
           <div class="card">
-            <div class="label">
-              Faturamento no período
-            </div>
-
-            <div
-              class="value"
-              id="dashFilterRevenue"
-            >
-              R$ 0,00
-            </div>
+            <div class="label">Faturamento no período</div>
+            <div class="value" id="dashFilterRevenue">R$ 0,00</div>
           </div>
 
           <div class="card">
-            <div class="label">
-              Atendimentos
-            </div>
-
-            <div
-              class="value"
-              id="dashFilterCount"
-            >
-              0
-            </div>
+            <div class="label">Atendimentos</div>
+            <div class="value" id="dashFilterCount">0</div>
           </div>
 
           <div class="card">
-            <div class="label">
-              Ticket médio
-            </div>
-
-            <div
-              class="value"
-              id="dashFilterTicket"
-            >
-              R$ 0,00
-            </div>
+            <div class="label">Ticket médio</div>
+            <div class="value" id="dashFilterTicket">R$ 0,00</div>
           </div>
         </div>
 
         <div
-          class="table-wrap"
+          class="table-wrap mt-14"
           id="dashFilterTable"
-          style="margin-top:14px"
+          tabindex="0"
+          role="region"
+          aria-label="Atendimentos do período; deslize para ver todas as colunas"
         ></div>
       </div>
 
       <div class="grid">
         <div class="panel">
           <h2>Próximos atendimentos</h2>
+          <p class="tableHint">Deslize a tabela para os lados para ver todas as colunas.</p>
           <div id="nextAppointments"></div>
         </div>
 
-        <div
-          class="panel"
-          id="monthSummaryPanel"
-        >
+        <div class="panel" id="monthSummaryPanel">
           <h2>Resumo do mês</h2>
           <div id="monthSummary"></div>
         </div>
       </div>
     </section>
 
-    <!-- AGENDA COM A DATA SUPERIOR REMOVIDA -->
-    <section
-      id="agenda"
-      class="section"
-    >
+    <section id="agenda" class="section">
       <div class="top">
         <div>
           <h1>Agenda</h1>
-
-          <div class="subtitle">
-            Controle seus horários e atendimentos
-          </div>
+          <div class="subtitle">Controle seus horários e atendimentos</div>
         </div>
 
-        <button
-          class="btn primary"
-          onclick="openModal()"
-        >
+        <button type="button" class="btn primary" onclick="openModal()">
           + Novo agendamento
         </button>
       </div>
 
-      <!--
-        Este campo fica escondido para o
-        JavaScript continuar funcionando.
-      -->
-      <input
-        type="hidden"
-        id="agendaDate"
-      >
+      <input type="hidden" id="agendaDate">
 
       <div class="panel">
-        <div
-          class="slots"
-          id="slots"
-        ></div>
+        <div class="slots" id="slots"></div>
       </div>
 
       <br>
 
       <div class="panel">
         <h2>Agendamentos de hoje</h2>
+        <p class="tableHint">Deslize a tabela para os lados para acessar as ações.</p>
 
         <div
           class="table-wrap"
           id="dayTable"
+          tabindex="0"
+          role="region"
+          aria-label="Agendamentos de hoje"
         ></div>
       </div>
 
@@ -1195,94 +1428,49 @@ textarea {
         <h2>🔎 Consultar período</h2>
 
         <div class="filters">
-          <input
-            type="date"
-            id="agendaFilterStart"
-          >
+          <input type="date" id="agendaFilterStart" aria-label="Data inicial">
+          <input type="date" id="agendaFilterEnd" aria-label="Data final">
 
-          <input
-            type="date"
-            id="agendaFilterEnd"
-          >
-
-          <button
-            type="button"
-            class="btn primary"
-            onclick="applyAgendaFilter()"
-          >
+          <button type="button" class="btn primary" onclick="applyAgendaFilter()">
             Consultar
           </button>
 
-          <button
-            type="button"
-            class="btn secondary"
-            onclick="clearAgendaFilter()"
-          >
+          <button type="button" class="btn secondary" onclick="clearAgendaFilter()">
             Limpar
           </button>
         </div>
 
-        <div
-          class="report-grid"
-          id="agendaFilterCards"
-          style="display:none"
-        >
+        <div class="report-grid" id="agendaFilterCards" style="display:none">
           <div class="card">
-            <div class="label">
-              Faturamento no período
-            </div>
-
-            <div
-              class="value"
-              id="agendaFilterRevenue"
-            >
-              R$ 0,00
-            </div>
+            <div class="label">Faturamento no período</div>
+            <div class="value" id="agendaFilterRevenue">R$ 0,00</div>
           </div>
 
           <div class="card">
-            <div class="label">
-              Atendimentos
-            </div>
-
-            <div
-              class="value"
-              id="agendaFilterCount"
-            >
-              0
-            </div>
+            <div class="label">Atendimentos</div>
+            <div class="value" id="agendaFilterCount">0</div>
           </div>
 
           <div class="card">
-            <div class="label">
-              Ticket médio
-            </div>
-
-            <div
-              class="value"
-              id="agendaFilterTicket"
-            >
-              R$ 0,00
-            </div>
+            <div class="label">Ticket médio</div>
+            <div class="value" id="agendaFilterTicket">R$ 0,00</div>
           </div>
         </div>
 
         <div
-          class="table-wrap"
+          class="table-wrap mt-14"
           id="agendaFilterTable"
-          style="margin-top:14px"
+          tabindex="0"
+          role="region"
+          aria-label="Agendamentos do período"
         ></div>
       </div>
     </section>
 
-    <section
-      id="clientes"
-      class="section"
-    >
+    <section id="clientes" class="section">
       <div class="top">
         <div>
           <h1>Clientes</h1>
-
           <div class="subtitle">
             Histórico de clientes cadastrados nos agendamentos
           </div>
@@ -1292,58 +1480,47 @@ textarea {
       <div class="panel">
         <div class="filters">
           <input
+            type="search"
             id="clientSearch"
+            aria-label="Buscar cliente pelo nome ou telefone"
             placeholder="🔎 Buscar nome ou telefone"
             oninput="renderClients()"
           >
 
-          <button
-            class="btn primary"
-            onclick="openClientModal()"
-          >
+          <button type="button" class="btn primary" onclick="openClientModal()">
             + Cadastrar cliente
           </button>
         </div>
 
+        <p class="tableHint">Deslize a tabela para os lados para ver o histórico e as ações.</p>
+
         <div
           class="table-wrap"
           id="clientTable"
+          tabindex="0"
+          role="region"
+          aria-label="Clientes cadastrados"
         ></div>
       </div>
     </section>
 
-    <section
-      id="relatorios"
-      class="section"
-    >
+    <section id="relatorios" class="section">
       <div class="top">
         <div>
           <h1>Relatórios</h1>
-
-          <div class="subtitle">
-            Acompanhe o desempenho financeiro do salão
-          </div>
+          <div class="subtitle">Acompanhe o desempenho financeiro do salão</div>
         </div>
 
         <div class="report-downloads">
-          <button
-            class="btn primary"
-            onclick="downloadReportPDF('day')"
-          >
+          <button type="button" class="btn primary" onclick="downloadReportPDF('day')">
             📄 Baixar relatório diário
           </button>
 
-          <button
-            class="btn primary"
-            onclick="downloadReportPDF('month')"
-          >
+          <button type="button" class="btn primary" onclick="downloadReportPDF('month')">
             📄 Baixar relatório mensal
           </button>
 
-          <button
-            class="btn primary"
-            onclick="downloadReportPDF('year')"
-          >
+          <button type="button" class="btn primary" onclick="downloadReportPDF('year')">
             📄 Baixar relatório anual
           </button>
         </div>
@@ -1353,116 +1530,52 @@ textarea {
         <div class="report-grid">
           <div class="card">
             <div class="label">Hoje</div>
-
-            <div
-              class="value"
-              id="rToday"
-            >
-              R$ 0,00
-            </div>
+            <div class="value" id="rToday">R$ 0,00</div>
           </div>
 
           <div class="card">
-            <div class="label">
-              Este mês
-            </div>
-
-            <div
-              class="value"
-              id="rMonth"
-            >
-              R$ 0,00
-            </div>
+            <div class="label">Este mês</div>
+            <div class="value" id="rMonth">R$ 0,00</div>
           </div>
 
           <div class="card">
-            <div class="label">
-              Este ano
-            </div>
-
-            <div
-              class="value"
-              id="rYear"
-            >
-              R$ 0,00
-            </div>
+            <div class="label">Este ano</div>
+            <div class="value" id="rYear">R$ 0,00</div>
           </div>
         </div>
 
         <br>
 
-        <div
-          class="panel"
-          style="margin-bottom:20px"
-        >
+        <div class="panel mb-20">
           <h2>🔎 Filtrar por período</h2>
 
           <div class="filters">
-            <input
-              type="date"
-              id="reportStartDate"
-            >
+            <input type="date" id="reportStartDate" aria-label="Data inicial do relatório">
+            <input type="date" id="reportEndDate" aria-label="Data final do relatório">
 
-            <input
-              type="date"
-              id="reportEndDate"
-            >
-
-            <button
-              type="button"
-              class="btn primary"
-              onclick="applyReportFilter()"
-            >
+            <button type="button" class="btn primary" onclick="applyReportFilter()">
               Filtrar
             </button>
 
-            <button
-              type="button"
-              class="btn secondary"
-              onclick="clearReportFilter()"
-            >
+            <button type="button" class="btn secondary" onclick="clearReportFilter()">
               Limpar
             </button>
           </div>
 
           <div class="report-grid">
             <div class="card">
-              <div class="label">
-                Faturamento no período
-              </div>
-
-              <div
-                class="value"
-                id="filteredRevenue"
-              >
-                R$ 0,00
-              </div>
+              <div class="label">Faturamento no período</div>
+              <div class="value" id="filteredRevenue">R$ 0,00</div>
             </div>
 
             <div class="card">
-              <div class="label">
-                Atendimentos
-              </div>
-
-              <div
-                class="value"
-                id="filteredCount"
-              >
-                0
-              </div>
+              <div class="label">Atendimentos</div>
+              <div class="value" id="filteredCount">0</div>
             </div>
 
             <div class="card">
-              <div class="label">
-                Ticket médio
-              </div>
-
-              <div
-                class="value"
-                id="filteredTicket"
-              >
-                R$ 0,00
-              </div>
+              <div class="label">Ticket médio</div>
+              <div class="value" id="filteredTicket">R$ 0,00</div>
             </div>
           </div>
         </div>
@@ -1470,23 +1583,16 @@ textarea {
         <br>
 
         <div class="panel">
-          <h2>
-            Procedimentos mais realizados
-          </h2>
-
+          <h2>Procedimentos mais realizados</h2>
           <div id="procedureReport"></div>
         </div>
       </div>
     </section>
 
-    <section
-      id="procedimentos"
-      class="section"
-    >
+    <section id="procedimentos" class="section">
       <div class="top">
         <div>
           <h1>Procedimentos</h1>
-
           <div class="subtitle">
             Cadastre os procedimentos oferecidos e seus valores padrão
           </div>
@@ -1497,70 +1603,57 @@ textarea {
         <div class="filters">
           <input
             id="procName"
+            aria-label="Nome do procedimento"
             placeholder="Nome do procedimento"
           >
 
           <input
             id="procPrice"
             type="number"
+            inputmode="decimal"
             min="0"
             step="0.01"
+            aria-label="Valor padrão do procedimento"
             placeholder="Valor padrão (R$)"
           >
 
-          <button
-            type="button"
-            class="btn primary"
-            onclick="addProcedure()"
-          >
+          <button type="button" class="btn primary" onclick="addProcedure()">
             + Adicionar
           </button>
         </div>
 
+        <p class="tableHint">Deslize a tabela para os lados para acessar as ações.</p>
+
         <div
           class="table-wrap"
           id="procedureTable"
+          tabindex="0"
+          role="region"
+          aria-label="Procedimentos cadastrados"
         ></div>
       </div>
     </section>
 
-    <section
-      id="configuracoes"
-      class="section"
-    >
+    <section id="configuracoes" class="section">
       <div class="top">
         <div>
           <h1>Configurações</h1>
-
           <div class="subtitle">
             Gerencie sua conta e altere sua senha de acesso
           </div>
         </div>
       </div>
 
-      <div
-        class="panel"
-        style="max-width:650px"
-      >
+      <div class="panel" style="max-width:650px">
         <h2>🔐 Alterar senha</h2>
 
-        <p
-          style="
-            color:var(--muted);
-            font-size:13px;
-            margin-top:-8px
-          "
-        >
+        <p style="color:var(--muted);font-size:13px;margin-top:-8px">
           A nova senha será salva permanentemente no sistema.
         </p>
 
-        <form
-          id="passwordForm"
-          class="form"
-        >
+        <form id="passwordForm" class="form">
           <div class="field full">
-            <label>Senha atual *</label>
-
+            <label for="currentPassword">Senha atual *</label>
             <input
               type="password"
               id="currentPassword"
@@ -1571,8 +1664,7 @@ textarea {
           </div>
 
           <div class="field full">
-            <label>Nova senha *</label>
-
+            <label for="newPassword">Nova senha *</label>
             <input
               type="password"
               id="newPassword"
@@ -1584,8 +1676,7 @@ textarea {
           </div>
 
           <div class="field full">
-            <label>Confirmar nova senha *</label>
-
+            <label for="confirmPassword">Confirmar nova senha *</label>
             <input
               type="password"
               id="confirmPassword"
@@ -1598,26 +1689,16 @@ textarea {
 
           <div
             id="passwordMessage"
-            style="
-              grid-column:1/-1;
-              min-height:20px;
-              font-size:13px
-            "
+            role="status"
+            style="grid-column:1/-1;min-height:20px;font-size:13px"
           ></div>
 
           <div class="form-actions full">
-            <button
-              type="button"
-              class="btn secondary"
-              onclick="clearPasswordForm()"
-            >
+            <button type="button" class="btn secondary" onclick="clearPasswordForm()">
               Limpar
             </button>
 
-            <button
-              type="submit"
-              class="btn primary"
-            >
+            <button type="submit" class="btn primary">
               🔐 Alterar senha
             </button>
           </div>
@@ -1628,70 +1709,38 @@ textarea {
   </main>
 </div>
 
-<div
-  class="clientPage"
-  id="clientPage"
-  style="display:none"
->
+<div class="clientPage" id="clientPage" style="display:none">
   <div class="clientWrap">
     <div class="clientHeader">
-      <div class="authLogo">
-        ✂️ Agenda<span>Pro</span>
-      </div>
-
-      <button
-        type="button"
-        class="btn secondary"
-        onclick="logout()"
-      >
-        Sair
-      </button>
+      <div class="authLogo">✂️ Agenda<span>Pro</span></div>
+      <button type="button" class="btn secondary" onclick="logout()">Sair</button>
     </div>
 
-    <div
-      class="clientCard"
-      id="clientStepForm"
-    >
+    <div class="clientCard" id="clientStepForm">
       <h1>Agendar horário</h1>
+      <p class="subtitle">Preencha seus dados para marcar seu atendimento</p>
 
-      <p class="subtitle">
-        Preencha seus dados para marcar seu atendimento
-      </p>
-
-      <form
-        id="clientBookingForm"
-        class="form"
-      >
+      <form id="clientBookingForm" class="form">
         <div class="field">
-          <label>Nome *</label>
-
-          <input
-            id="cbName"
-            required
-            placeholder="Seu nome completo"
-          >
+          <label for="cbName">Nome *</label>
+          <input id="cbName" required autocomplete="name" placeholder="Seu nome completo">
         </div>
 
         <div class="field">
-          <label>WhatsApp *</label>
-
+          <label for="cbPhone">WhatsApp *</label>
           <input
             id="cbPhone"
+            type="tel"
+            inputmode="tel"
+            autocomplete="tel"
             required
             placeholder="(85) 99999-9999"
           >
         </div>
 
         <div class="field full">
-          <label>
-            Foto do cabelo (opcional)
-          </label>
-
-          <input
-            id="cbPhoto"
-            type="file"
-            accept="image/*"
-          >
+          <label for="cbPhoto">Foto do cabelo (opcional)</label>
+          <input id="cbPhoto" type="file" accept="image/*">
 
           <small style="color:#73798c">
             A foto fica salva com segurança no sistema.
@@ -1706,10 +1755,7 @@ textarea {
         </div>
 
         <div class="field full">
-          <label>
-            Observações (opcional)
-          </label>
-
+          <label for="cbNote">Observações (opcional)</label>
           <textarea
             id="cbNote"
             placeholder="Alguma preferência ou informação importante?"
@@ -1717,142 +1763,84 @@ textarea {
         </div>
 
         <div class="field">
-          <label>Procedimento *</label>
-
-          <select
-            id="clientProcedure"
-            required
-          ></select>
+          <label for="clientProcedure">Procedimento *</label>
+          <select id="clientProcedure" required></select>
         </div>
 
         <div class="field">
-          <label>Data *</label>
-
-          <input
-            type="date"
-            id="cbDate"
-            required
-          >
+          <label for="cbDate">Data *</label>
+          <input type="date" id="cbDate" required>
         </div>
 
         <div class="field full">
-          <label>
-            Horário disponível *
-          </label>
-
-          <div
-            class="slots"
-            id="cbSlots"
-          ></div>
+          <label id="cbSlotsLabel">Horário disponível *</label>
+          <div class="slots" id="cbSlots" role="group" aria-labelledby="cbSlotsLabel"></div>
         </div>
 
         <div class="form-actions full">
-          <button class="btn primary">
-            Confirmar agendamento
-          </button>
+          <button type="submit" class="btn primary">Confirmar agendamento</button>
         </div>
       </form>
     </div>
 
-    <div
-      class="clientCard"
-      id="clientSuccess"
-      style="display:none"
-    >
+    <div class="clientCard" id="clientSuccess" style="display:none">
       <div class="successIcon">✅</div>
-
       <h1>Agendado com sucesso!</h1>
+      <p class="subtitle" id="successDetails"></p>
 
-      <p
-        class="subtitle"
-        id="successDetails"
-      ></p>
-
-      <button
-        type="button"
-        class="btn primary"
-        onclick="newClientBooking()"
-      >
+      <button type="button" class="btn primary" onclick="newClientBooking()">
         Fazer novo agendamento
       </button>
     </div>
   </div>
 </div>
 
-<div
-  class="modal"
-  id="modal"
->
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="appointmentTitle">
   <div class="modal-box">
     <div class="modal-head">
-      <h2>Novo agendamento</h2>
-
-      <button
-        class="close"
-        onclick="closeModal()"
-      >
-        ✕
-      </button>
+      <h2 id="appointmentTitle">Novo agendamento</h2>
+      <button type="button" class="close" aria-label="Fechar" onclick="closeModal()">✕</button>
     </div>
 
-    <form
-      id="appointmentForm"
-      class="form"
-    >
+    <form id="appointmentForm" class="form">
       <div class="field">
-        <label>Nome do cliente *</label>
-
-        <input
-          id="name"
-          required
-          placeholder="Ex.: Maria Silva"
-        >
+        <label for="name">Nome do cliente *</label>
+        <input id="name" required autocomplete="name" placeholder="Ex.: Maria Silva">
       </div>
 
       <div class="field">
-        <label>Contato / WhatsApp *</label>
-
+        <label for="phone">Contato / WhatsApp *</label>
         <input
           id="phone"
+          type="tel"
+          inputmode="tel"
+          autocomplete="tel"
           required
           placeholder="(85) 99999-9999"
         >
       </div>
 
       <div class="field">
-        <label>Data *</label>
-
-        <input
-          type="date"
-          id="date"
-          required
-        >
+        <label for="date">Data *</label>
+        <input type="date" id="date" required>
       </div>
 
       <div class="field">
-        <label>Hora *</label>
-
-        <select
-          id="time"
-          required
-        ></select>
+        <label for="time">Hora *</label>
+        <select id="time" required></select>
       </div>
 
       <div class="field">
-        <label>Procedimento *</label>
-
-        <select
-          id="procedure"
-          required
-        ></select>
+        <label for="procedure">Procedimento *</label>
+        <select id="procedure" required></select>
       </div>
 
       <div class="field">
-        <label>Valor (R$) *</label>
-
+        <label for="price">Valor (R$) *</label>
         <input
           id="price"
           type="number"
+          inputmode="decimal"
           min="0"
           step="0.01"
           required
@@ -1861,8 +1849,7 @@ textarea {
       </div>
 
       <div class="field">
-        <label>Status</label>
-
+        <label for="status">Status</label>
         <select id="status">
           <option>Agendado</option>
           <option>Confirmado</option>
@@ -1872,28 +1859,13 @@ textarea {
       </div>
 
       <div class="field full">
-        <label>
-          Observação para o cliente
-        </label>
-
-        <textarea
-          id="note"
-          placeholder="Ex.: chegar 10 minutos antes..."
-        ></textarea>
+        <label for="note">Observação para o cliente</label>
+        <textarea id="note" placeholder="Ex.: chegar 10 minutos antes..."></textarea>
       </div>
 
       <div class="form-actions full">
-        <button
-          type="button"
-          class="btn secondary"
-          onclick="closeModal()"
-        >
-          Cancelar
-        </button>
-
-        <button class="btn primary">
-          Salvar agendamento
-        </button>
+        <button type="button" class="btn secondary" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn primary">Salvar agendamento</button>
       </div>
     </form>
   </div>
@@ -1902,51 +1874,42 @@ textarea {
 <div
   class="modal"
   id="clientModal"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="clientModalTitle"
 >
   <div class="modal-box">
     <div class="modal-head">
-      <h2>Cadastro de cliente</h2>
-
+      <h2 id="clientModalTitle">Cadastro de cliente</h2>
       <button
+        type="button"
         class="close"
+        aria-label="Fechar"
         onclick="closeClientModal()"
-      >
-        ✕
-      </button>
+      >✕</button>
     </div>
 
-    <form
-      id="clientForm"
-      class="form"
-    >
+    <form id="clientForm" class="form">
       <div class="field">
-        <label>Nome do cliente *</label>
-
-        <input
-          id="clientName"
-          required
-          placeholder="Ex.: Maria Silva"
-        >
+        <label for="clientName">Nome do cliente *</label>
+        <input id="clientName" required autocomplete="name" placeholder="Ex.: Maria Silva">
       </div>
 
       <div class="field">
-        <label>Contato / WhatsApp *</label>
-
+        <label for="clientPhone">Contato / WhatsApp *</label>
         <input
           id="clientPhone"
+          type="tel"
+          inputmode="tel"
+          autocomplete="tel"
           required
           placeholder="(85) 99999-9999"
         >
       </div>
 
       <div class="field full">
-        <label>Foto do cabelo</label>
-
-        <input
-          id="clientPhoto"
-          type="file"
-          accept="image/*"
-        >
+        <label for="clientPhoto">Foto do cabelo</label>
+        <input id="clientPhoto" type="file" accept="image/*">
 
         <small style="color:#73798c">
           A foto fica salva com segurança no sistema.
@@ -1961,10 +1924,7 @@ textarea {
       </div>
 
       <div class="field full">
-        <label>
-          Observações do cliente
-        </label>
-
+        <label for="clientNote">Observações do cliente</label>
         <textarea
           id="clientNote"
           placeholder="Ex.: prefere corte em camadas, cor utilizada, cuidados, preferências..."
@@ -1972,17 +1932,10 @@ textarea {
       </div>
 
       <div class="form-actions full">
-        <button
-          type="button"
-          class="btn secondary"
-          onclick="closeClientModal()"
-        >
+        <button type="button" class="btn secondary" onclick="closeClientModal()">
           Cancelar
         </button>
-
-        <button class="btn primary">
-          Salvar cliente
-        </button>
+        <button type="submit" class="btn primary">Salvar cliente</button>
       </div>
     </form>
   </div>
