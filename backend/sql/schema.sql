@@ -1,3 +1,9 @@
+BEGIN;
+
+-- =====================================================
+-- USUÁRIOS
+-- =====================================================
+
 CREATE TABLE IF NOT EXISTS usuarios (
     id BIGSERIAL PRIMARY KEY,
     nome VARCHAR(120) NOT NULL,
@@ -12,6 +18,10 @@ CREATE TABLE IF NOT EXISTS usuarios (
         CHECK (perfil IN ('admin', 'funcionario'))
 );
 
+-- =====================================================
+-- CLIENTES
+-- =====================================================
+
 CREATE TABLE IF NOT EXISTS clientes (
     id BIGSERIAL PRIMARY KEY,
     nome VARCHAR(150) NOT NULL,
@@ -23,6 +33,10 @@ CREATE TABLE IF NOT EXISTS clientes (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- =====================================================
+-- PROCEDIMENTOS
+-- =====================================================
+
 CREATE TABLE IF NOT EXISTS procedimentos (
     id BIGSERIAL PRIMARY KEY,
     nome VARCHAR(150) NOT NULL UNIQUE,
@@ -31,6 +45,10 @@ CREATE TABLE IF NOT EXISTS procedimentos (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- =====================================================
+-- AGENDAMENTOS
+-- =====================================================
 
 CREATE TABLE IF NOT EXISTS agendamentos (
     id BIGSERIAL PRIMARY KEY,
@@ -68,6 +86,38 @@ CREATE TABLE IF NOT EXISTS agendamentos (
         )
 );
 
+-- Atualiza os status permitidos, preservando os registros.
+
+ALTER TABLE agendamentos
+    DROP CONSTRAINT IF EXISTS agendamento_status_check;
+
+ALTER TABLE agendamentos
+    ADD CONSTRAINT agendamento_status_check
+    CHECK (
+        status IN (
+            'Agendado',
+            'Confirmado',
+            'Atendido',
+            'Cancelado',
+            'Retorno'
+        )
+    );
+
+-- Liga o retorno ao agendamento original.
+
+ALTER TABLE agendamentos
+    ADD COLUMN IF NOT EXISTS agendamento_origem_id BIGINT
+    REFERENCES agendamentos(id)
+    ON DELETE SET NULL;
+
+-- Permite vários agendamentos na mesma data e horário.
+
+DROP INDEX IF EXISTS uq_agendamento_horario_ativo;
+
+-- =====================================================
+-- ATENDIMENTOS REALIZADOS
+-- =====================================================
+
 CREATE TABLE IF NOT EXISTS atendimentos (
     id BIGSERIAL PRIMARY KEY,
 
@@ -91,70 +141,33 @@ CREATE TABLE IF NOT EXISTS atendimentos (
         REFERENCES usuarios(id)
         ON DELETE SET NULL,
 
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-BEGIN;
+-- Adiciona o campo também em bancos já existentes.
+-- O servidor deverá atualizá-lo ao editar um atendimento.
 
--- Atualiza os status permitidos sem apagar os registros.
+ALTER TABLE atendimentos
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ
+    NOT NULL DEFAULT NOW();
 
-ALTER TABLE agendamentos
-    DROP CONSTRAINT IF EXISTS agendamento_status_check;
+-- =====================================================
+-- PRODUTOS DO SALÃO
+-- =====================================================
 
-ALTER TABLE agendamentos
-    ADD CONSTRAINT agendamento_status_check
-    CHECK (
-        status IN (
-            'Agendado',
-            'Confirmado',
-            'Atendido',
-            'Cancelado',
-            'Retorno'
-        )
-    );
+CREATE TABLE IF NOT EXISTS produtos (
+    id BIGSERIAL PRIMARY KEY,
+    nome VARCHAR(150) NOT NULL UNIQUE,
+    descricao TEXT,
+    preco NUMERIC(10,2) NOT NULL DEFAULT 0,
+    ativo BOOLEAN NOT NULL DEFAULT TRUE,
 
--- Vincula cada retorno ao agendamento original.
+    criado_por BIGINT
+        REFERENCES usuarios(id)
+        ON DELETE SET NULL,
 
-ALTER TABLE agendamentos
-    ADD COLUMN IF NOT EXISTS agendamento_origem_id BIGINT
-    REFERENCES agendamentos(id)
-    ON DELETE SET NULL;
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
--- Remove a restrição que permitia apenas um agendamento
--- por data e horário. Não apaga nenhum agendamento.
-
-DROP INDEX IF EXISTS uq_agendamento_horario_ativo;
-
-COMMIT;
-
-CREATE INDEX IF NOT EXISTS idx_clientes_nome
-    ON clientes(nome);
-
-CREATE INDEX IF NOT EXISTS idx_agendamentos_data
-    ON agendamentos(data);
-
--- Este índice permite vários registros no mesmo horário.
-
-CREATE INDEX IF NOT EXISTS idx_agendamentos_data_hora
-    ON agendamentos(data, hora);
-
-CREATE INDEX IF NOT EXISTS idx_agendamentos_cliente
-    ON agendamentos(cliente_id);
-
-CREATE INDEX IF NOT EXISTS idx_agendamentos_status
-    ON agendamentos(status);
-
-CREATE INDEX IF NOT EXISTS idx_agendamentos_origem
-    ON agendamentos(agendamento_origem_id);
-
--- Evita duplicar a conclusão do mesmo agendamento.
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_atendimento_agendamento
-    ON atendimentos(agendamento_id)
-    WHERE agendamento_id IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_atendimentos_cliente
-    ON atendimentos(cliente_id);
-
-CREATE INDEX IF NOT EXISTS idx_atendimentos_data
-    ON atendimentos(data);
+    CONSTRAINT produtos

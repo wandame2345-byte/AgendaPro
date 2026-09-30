@@ -1,4 +1,3 @@
-
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -19,7 +18,10 @@ export const cookieOptions = {
 };
 
 const hash = value =>
-  crypto.createHash('sha256').update(String(value)).digest('hex');
+  crypto
+    .createHash('sha256')
+    .update(String(value))
+    .digest('hex');
 
 const wrap = fn => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
@@ -31,7 +33,11 @@ export function databaseOptions(connectionString) {
   const url = new URL(connectionString);
 
   for (const key of [
-    'sslmode', 'sslcert', 'sslkey', 'sslrootcert', 'ssl'
+    'sslmode',
+    'sslcert',
+    'sslkey',
+    'sslrootcert',
+    'ssl'
   ]) {
     url.searchParams.delete(key);
   }
@@ -155,7 +161,6 @@ export function installSecurity(
         ],
 
         // Compatibilidade com os onclick da interface atual.
-        // Remover após migrar esses eventos para addEventListener.
         scriptSrcAttr: ["'unsafe-inline'"],
 
         styleSrc: ["'self'", "'unsafe-inline'"],
@@ -166,15 +171,20 @@ export function installSecurity(
         baseUri: ["'none'"],
         frameAncestors: ["'none'"],
         formAction: ["'self'"],
+
         ...(production
           ? { upgradeInsecureRequests: [] }
           : {})
       }
     },
+
     strictTransportSecurity: production
       ? { maxAge: 31536000 }
       : false,
-    referrerPolicy: { policy: 'no-referrer' }
+
+    referrerPolicy: {
+      policy: 'no-referrer'
+    }
   }));
 
   app.use('/api', (req, res, next) => {
@@ -227,8 +237,88 @@ export function installSecurity(
     limit('senha-ip', 10, 3600)
   );
 
+  const validPhotoName =
+    /^[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp|gif)$/i;
+
+  const imageOptions = {
+    limitInputPixels: 20000000,
+    failOn: 'warning',
+    animated: false
+  };
+
+  async function convertPhoto(input) {
+    const metadata = await sharp(
+      input,
+      imageOptions
+    ).metadata();
+
+    if (
+      !['jpeg', 'png', 'webp', 'gif']
+        .includes(metadata.format)
+    ) {
+      throw problem('Formato de foto inválido.');
+    }
+
+    const buffer = await sharp(input, imageOptions)
+      .rotate()
+      .resize({
+        width: 1600,
+        height: 1600,
+        fit: 'inside',
+        withoutEnlargement: true
+      })
+      .webp({ quality: 82 })
+      .toBuffer();
+
+    if (buffer.length > 5 * 1024 * 1024) {
+      throw problem(
+        'Foto muito grande. Envie uma imagem menor.'
+      );
+    }
+
+    return buffer;
+  }
+
+  async function savePhoto(filename, buffer) {
+    await pool.query(`
+      INSERT INTO arquivos_fotos(nome, conteudo)
+      VALUES($1, $2)
+      ON CONFLICT(nome) DO NOTHING
+    `, [filename, buffer]);
+  }
+
+  async function discardPhoto(filename) {
+    if (!filename) return;
+
+    // Só remove arquivos sem vínculo com clientes ou produtos.
+    await pool.query(`
+      DELETE FROM arquivos_fotos
+      WHERE nome = $1
+        AND NOT EXISTS (
+          SELECT 1
+          FROM clientes
+          WHERE foto_url = $2
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM produtos
+          WHERE foto_url = $2
+        )
+    `, [filename, '/uploads/' + filename]);
+  }
+
   async function ensureSchema() {
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS arquivos_fotos (
+        nome TEXT PRIMARY KEY,
+        conteudo BYTEA NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+        CHECK (
+          octet_length(conteudo) BETWEEN 1 AND 5242880
+        )
+      );
+
       CREATE TABLE IF NOT EXISTS seguranca_sessoes (
         token_hash TEXT PRIMARY KEY,
 
@@ -257,6 +347,65 @@ export function installSecurity(
         idx_seguranca_limites_expira
         ON seguranca_limites(expira_em);
     `);
+
+    // Importa as fotos antigas que ainda estiverem na pasta.
+    // Arquivos já perdidos precisarão ser enviados novamente.
+    const oldPhotos = await pool.query(`
+      SELECT foto_url
+      FROM clientes
+      WHERE foto_url LIKE '/uploads/%'
+
+      UNION
+
+      SELECT foto_url
+      FROM produtos
+      WHERE foto_url LIKE '/uploads/%'
+    `);
+
+    for (const row of oldPhotos.rows) {
+      const filename =
+        row.foto_url.slice('/uploads/'.length);
+
+      if (!validPhotoName.test(filename)) continue;
+
+      const stored = await pool.query(
+        'SELECT 1 FROM arquivos_fotos WHERE nome = $1',
+        [filename]
+      );
+
+      if (stored.rowCount) continue;
+
+      let buffer;
+
+      try {
+        const location = path.join(
+          uploadDir,
+          filename
+        );
+
+        const info = await fs.promises.stat(location);
+
+        if (
+          !info.isFile() ||
+          info.size > 5 * 1024 * 1024
+        ) {
+          continue;
+        }
+
+        buffer = await convertPhoto(
+          await fs.promises.readFile(location)
+        );
+      } catch {
+        console.warn(
+          'Foto antiga indisponível para migração:',
+          filename
+        );
+
+        continue;
+      }
+
+      await savePhoto(filename, buffer);
+    }
 
     const timer = setInterval(() => {
       pool.query(`
@@ -489,84 +638,47 @@ export function installSecurity(
               if (error) throw error;
 
               if (req.file) {
-                const opts = {
-                  limitInputPixels: 20000000,
-                  failOn: 'warning',
-                  animated: false
-                };
+                let buffer;
 
-                const metadata = await sharp(
-                  req.file.buffer,
-                  opts
-                ).metadata();
-
-                if (
-                  !['jpeg', 'png', 'webp', 'gif']
-                    .includes(metadata.format)
-                ) {
-                  throw new Error('Formato inválido');
+                try {
+                  buffer = await convertPhoto(
+                    req.file.buffer
+                  );
+                } catch {
+                  throw problem(
+                    'Foto inválida. Envie JPG, PNG, WEBP ou GIF de até 5 MB.'
+                  );
                 }
-
-                const buffer = await sharp(
-                  req.file.buffer,
-                  opts
-                )
-                  .rotate()
-                  .resize({
-                    width: 1600,
-                    height: 1600,
-                    fit: 'inside',
-                    withoutEnlargement: true
-                  })
-                  .webp({ quality: 82 })
-                  .toBuffer();
 
                 const filename =
                   crypto.randomUUID() + '.webp';
 
-                saved = path.join(
-                  uploadDir,
-                  filename
-                );
+                // Guarda os bytes da imagem no PostgreSQL.
+                await savePhoto(filename, buffer);
 
-                await fs.promises.writeFile(
-                  saved,
-                  buffer,
-                  {
-                    flag: 'wx',
-                    mode: 0o600
-                  }
-                );
+                saved = filename;
 
                 req.file = {
                   filename,
-                  path: saved,
                   mimetype: 'image/webp',
                   size: buffer.length
                 };
 
                 res.once('finish', () => {
                   if (res.statusCode >= 400) {
-                    fs.promises.unlink(saved)
+                    discardPhoto(filename)
                       .catch(() => {});
                   }
                 });
               }
             } catch (failure) {
               if (saved) {
-                await fs.promises.unlink(saved)
+                await discardPhoto(saved)
                   .catch(() => {});
               }
 
               processing--;
-
-              return next(
-                failure instanceof multer.MulterError
-                  ? failure
-                  : problem(
-                      'Foto inválida. Envie JPG, PNG, WEBP ou GIF de até 5 MB.'
-                    )
-              );
+              return next(failure);
             }
 
             processing--;
@@ -591,10 +703,7 @@ export function installSecurity(
         throw problem('Foto inválida.');
       }
 
-      if (
-        !/^[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp|gif)$/i
-          .test(filename)
-      ) {
+      if (!validPhotoName.test(filename)) {
         throw problem(
           'Foto não encontrada.',
           404
@@ -603,10 +712,18 @@ export function installSecurity(
 
       const url = '/uploads/' + filename;
 
+      // Somente fotos vinculadas a um cadastro podem ser vistas.
       const linked = await pool.query(`
-        SELECT 1 FROM clientes WHERE foto_url = $1
+        SELECT 1
+        FROM clientes
+        WHERE foto_url = $1
+
         UNION ALL
-        SELECT 1 FROM produtos WHERE foto_url = $1
+
+        SELECT 1
+        FROM produtos
+        WHERE foto_url = $1
+
         LIMIT 1
       `, [url]);
 
@@ -622,18 +739,21 @@ export function installSecurity(
         'private, no-store'
       );
 
-      res.sendFile(
-        filename,
-        {
-          root: uploadDir,
-          dotfiles: 'deny'
-        },
-        error => {
-          if (error && !res.headersSent) {
-            res.status(404).end();
-          }
-        }
+      const photo = await pool.query(
+        'SELECT conteudo FROM arquivos_fotos WHERE nome = $1',
+        [filename]
       );
+
+      if (!photo.rowCount) {
+        return res.status(404).json({
+          error:
+            'Foto indisponível. Edite o cadastro e envie a foto novamente.'
+        });
+      }
+
+      res
+        .type('image/webp')
+        .send(photo.rows[0].conteudo);
     })
   );
 
@@ -675,9 +795,8 @@ export function installSecurity(
     }
 
     // Telefone não autoriza alterar cadastro existente.
-    if (file?.path) {
-      await fs.promises.unlink(file.path)
-        .catch(() => {});
+    if (file?.filename) {
+      await discardPhoto(file.filename);
     }
 
     const existing = await db.query(`
