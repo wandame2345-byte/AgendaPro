@@ -15,7 +15,6 @@ dotenv.config();
 
 const { Pool } = pg;
 
-// Mantém datas do PostgreSQL no formato YYYY-MM-DD.
 pg.types.setTypeParser(1082, value => value);
 
 const __filename = fileURLToPath(import.meta.url);
@@ -81,6 +80,20 @@ function normalizePhone(value = '') {
   return String(value).trim().replace(/\D/g, '');
 }
 
+function salonToday() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+
+  const part = type =>
+    parts.find(item => item.type === type).value;
+
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
 function signUser(user) {
   return jwt.sign(
     {
@@ -137,7 +150,8 @@ function publicAppointment(appointment) {
   return {
     id: appointment.id,
     clientId: appointment.cliente_id,
-    originalAppointmentId: appointment.agendamento_origem_id || null,
+    originalAppointmentId:
+      appointment.agendamento_origem_id || null,
     isReturn:
       Boolean(appointment.agendamento_origem_id) ||
       appointment.status === 'Retorno',
@@ -227,8 +241,13 @@ function openingSlots(settings, date) {
       minute + settings.interval <= until;
       minute += settings.interval
     ) {
-      const hourText = String(Math.floor(minute / 60)).padStart(2, '0');
-      const minuteText = String(minute % 60).padStart(2, '0');
+      const hourText = String(
+        Math.floor(minute / 60)
+      ).padStart(2, '0');
+
+      const minuteText = String(
+        minute % 60
+      ).padStart(2, '0');
 
       slots.push(`${hourText}:${minuteText}`);
     }
@@ -257,10 +276,14 @@ function validateOpeningHours(value) {
     }
 
     if (new Set(value.slots).size !== value.slots.length) {
-      fail('Existem horários repetidos. Remova a repetição antes de salvar.');
+      fail(
+        'Existem horários repetidos. Remova a repetição antes de salvar.'
+      );
     }
 
-    return { slots: [...value.slots].sort() };
+    return {
+      slots: [...value.slots].sort()
+    };
   }
 
   if (
@@ -343,7 +366,11 @@ function validateOpeningHours(value) {
           ? [[start, end]]
           : [[start, pauseStart], [pauseEnd, end]];
 
-      if (!ranges.some(([from, until]) => until - from >= value.interval)) {
+      if (
+        !ranges.some(
+          ([from, until]) => until - from >= value.interval
+        )
+      ) {
         fail(
           `${labels[index]}: o expediente precisa comportar pelo menos um intervalo completo.`
         );
@@ -353,7 +380,10 @@ function validateOpeningHours(value) {
     return normalized;
   });
 
-  return { interval: value.interval, days };
+  return {
+    interval: value.interval,
+    days
+  };
 }
 
 async function readOpeningHours(database = pool, lock = false) {
@@ -372,6 +402,8 @@ async function readOpeningHours(database = pool, lock = false) {
 async function assertOpeningSlot(database, date, time) {
   const settings = await readOpeningHours(database, true);
 
+  // Valida o horário de funcionamento.
+  // Não bloqueia horários que já tenham outros clientes.
   if (
     openingWeekday(date) === null ||
     !openingSlots(settings, date).includes(time)
@@ -422,7 +454,8 @@ const storage = multer.diskStorage({
   },
 
   filename: (_req, file, callback) => {
-    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    const ext =
+      path.extname(file.originalname).toLowerCase() || '.jpg';
 
     const safeName =
       `${Date.now()}-` +
@@ -435,7 +468,10 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+
+  limits: {
+    fileSize: 5 * 1024 * 1024
+  },
 
   fileFilter: (_req, file, callback) => {
     if (
@@ -485,7 +521,9 @@ app.post(
     }
 
     if (!['admin', 'funcionario'].includes(role)) {
-      return res.status(400).json({ error: 'Perfil inválido.' });
+      return res.status(400).json({
+        error: 'Perfil inválido.'
+      });
     }
 
     const result = await pool.query(
@@ -757,8 +795,6 @@ app.patch(
   })
 );
 
-// A remoção do procedimento preserva o histórico.
-
 app.delete(
   '/api/procedures/:id',
   auth,
@@ -880,7 +916,7 @@ app.post(
   })
 );
 
-// EXCLUSÃO DEFINITIVA DO CLIENTE E DO HISTÓRICO VINCULADO
+// EXCLUSÃO DEFINITIVA DO CLIENTE E DOS REGISTROS VINCULADOS
 
 app.delete(
   '/api/clients/:id',
@@ -954,7 +990,7 @@ app.delete(
   })
 );
 
-// FUNÇÃO AUXILIAR DE CLIENTE
+// CADASTRO OU ATUALIZAÇÃO DO CLIENTE
 
 async function upsertClient(client, clientInfo) {
   const name = String(clientInfo.name || '').trim();
@@ -993,7 +1029,86 @@ async function upsertClient(client, clientInfo) {
   return result.rows[0];
 }
 
-// AGENDAMENTOS
+// NOTIFICAÇÕES: ATENDIMENTOS PENDENTES DO DIA
+
+app.get(
+  '/api/notifications/today',
+  auth,
+  asyncHandler(async (req, res) => {
+    const date = String(req.query.date || salonToday());
+
+    if (openingWeekday(date) === null) {
+      return res.status(400).json({
+        error: 'Data inválida.'
+      });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        a.*,
+        c.nome,
+        c.telefone,
+        p.nome AS procedimento
+      FROM agendamentos a
+      JOIN clientes c ON c.id = a.cliente_id
+      JOIN procedimentos p ON p.id = a.procedimento_id
+      WHERE a.data = $1
+        AND a.status NOT IN ('Cancelado', 'Atendido')
+      ORDER BY a.hora, a.id
+      `,
+      [date]
+    );
+
+    res.set('Cache-Control', 'no-store');
+
+    res.json({
+      date,
+      count: result.rowCount,
+      appointments: result.rows.map(publicAppointment)
+    });
+  })
+);
+
+// ATENDIMENTOS FUTUROS
+// Inclui datas posteriores a hoje, sem limitar ao mês atual.
+
+app.get(
+  '/api/appointments/upcoming',
+  auth,
+  asyncHandler(async (req, res) => {
+    const date = String(req.query.date || salonToday());
+
+    if (openingWeekday(date) === null) {
+      return res.status(400).json({
+        error: 'Data inválida.'
+      });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        a.*,
+        c.nome,
+        c.telefone,
+        p.nome AS procedimento
+      FROM agendamentos a
+      JOIN clientes c ON c.id = a.cliente_id
+      JOIN procedimentos p ON p.id = a.procedimento_id
+      WHERE a.data > $1
+        AND a.status NOT IN ('Cancelado', 'Atendido')
+      ORDER BY a.data, a.hora, a.id
+      `,
+      [date]
+    );
+
+    res.set('Cache-Control', 'no-store');
+
+    res.json(result.rows.map(publicAppointment));
+  })
+);
+
+// LISTA DE AGENDAMENTOS
 
 app.get(
   '/api/appointments',
@@ -1086,6 +1201,7 @@ app.delete(
 );
 
 // NOVO AGENDAMENTO
+// Permite vários clientes na mesma data e horário.
 
 app.post(
   '/api/appointments',
@@ -1136,7 +1252,9 @@ app.post(
         throw error;
       }
 
-      const value = Number(price ?? procedure.rows[0].preco) || 0;
+      const value = Number(
+        price ?? procedure.rows[0].preco
+      ) || 0;
 
       const result = await client.query(
         `
@@ -1178,12 +1296,17 @@ app.post(
         [result.rows[0].id]
       );
 
-      res.status(201).json(publicAppointment(full.rows[0]));
+      res.status(201).json(
+        publicAppointment(full.rows[0])
+      );
     } catch (error) {
       await client.query('ROLLBACK');
 
       if (error.code === '23505') {
-        const conflict = new Error('Este horário já está ocupado.');
+        const conflict = new Error(
+          'Não foi possível salvar: existe um registro duplicado. Confira se o schema.sql atualizado foi publicado.'
+        );
+
         conflict.status = 409;
         throw conflict;
       }
@@ -1195,7 +1318,8 @@ app.post(
   })
 );
 
-// HORÁRIOS PÚBLICOS
+// HORÁRIOS PARA AGENDAMENTO
+// Um horário com reservas permanece disponível.
 
 app.get(
   '/api/public/slots',
@@ -1203,7 +1327,9 @@ app.get(
     const date = String(req.query.date || '');
 
     if (openingWeekday(date) === null) {
-      return res.status(400).json({ error: 'Data inválida.' });
+      return res.status(400).json({
+        error: 'Data inválida.'
+      });
     }
 
     const settings = await readOpeningHours();
@@ -1219,17 +1345,32 @@ app.get(
       [date]
     );
 
+    const bookingsByTime = result.rows.reduce((counts, row) => {
+      const time = String(row.hora).slice(0, 5);
+
+      counts[time] = (counts[time] || 0) + 1;
+
+      return counts;
+    }, {});
+
     res.set('Cache-Control', 'no-store');
 
     res.json({
       date,
       slots: openingSlots(settings, date),
-      taken: result.rows.map(row => String(row.hora).slice(0, 5))
+      allowMultipleBookings: true,
+
+      // Nenhum horário é bloqueado por já ter uma reserva.
+      taken: [],
+
+      // Quantidade de agendamentos existentes em cada horário.
+      bookingsByTime
     });
   })
 );
 
 // AGENDAMENTO PÚBLICO
+// Também permite vários clientes no mesmo horário.
 
 app.post(
   '/api/public/bookings',
@@ -1276,7 +1417,9 @@ app.post(
         name,
         phone,
         note,
-        photo: req.file ? `/uploads/${req.file.filename}` : null
+        photo: req.file
+          ? `/uploads/${req.file.filename}`
+          : null
       });
 
       const result = await client.query(
@@ -1317,7 +1460,8 @@ app.post(
 
       if (error.code === '23505') {
         return res.status(409).json({
-          error: 'Esse horário acabou de ser ocupado. Escolha outro.'
+          error:
+            'Não foi possível salvar: existe um registro duplicado. Confira se o schema.sql atualizado foi publicado.'
         });
       }
 
@@ -1369,7 +1513,6 @@ app.post(
     try {
       await client.query('BEGIN');
 
-      // Bloqueia o registro durante a criação do retorno.
       const sourceResult = await client.query(
         `
         SELECT a.*, a.data::text AS original_date
@@ -1397,10 +1540,13 @@ app.post(
           time <= String(source.hora).slice(0, 5)
         )
       ) {
-        fail('O retorno deve acontecer depois do atendimento original.');
+        fail(
+          'O retorno deve acontecer depois do atendimento original.'
+        );
       }
 
-      // Impede retornos duplicados para o mesmo atendimento.
+      // Evita criar dois retornos pendentes para o mesmo
+      // atendimento original por cliques repetidos.
       const existing = await client.query(
         `
         SELECT id
@@ -1445,7 +1591,6 @@ app.post(
 
       const procedure = proceduresResult.rows[0];
 
-      // Se o valor não for informado, usa o preço do procedimento.
       const price = procedurePrice(
         body.price === undefined ||
         body.price === null ||
@@ -1460,7 +1605,7 @@ app.post(
 
       await assertOpeningSlot(client, date, time);
 
-      // Cria o retorno sem alterar a data do atendimento original.
+      // Não bloqueia outros clientes no mesmo horário.
       const inserted = await client.query(
         `
         INSERT INTO agendamentos (
@@ -1510,7 +1655,8 @@ app.post(
 
       if (error.code === '23505') {
         return res.status(409).json({
-          error: 'Este horário já está ocupado. Escolha outro.'
+          error:
+            'Não foi possível salvar: existe um registro duplicado. Confira se o schema.sql atualizado foi publicado.'
         });
       }
 
@@ -1522,7 +1668,8 @@ app.post(
 );
 
 // ALTERAÇÃO DE STATUS
-// Para agendar um retorno com data, utilize a rota /return acima.
+// O botão Retorno utiliza a rota /return para criar
+// outro agendamento com data e horário próprios.
 
 app.patch(
   '/api/appointments/:id/status',
@@ -1614,7 +1761,8 @@ async function reportData(type, date, month, year) {
   let label;
 
   if (type === 'month') {
-    const selectedMonth = month || new Date().toISOString().slice(0, 7);
+    const selectedMonth =
+      month || new Date().toISOString().slice(0, 7);
 
     const [selectedYear, selectedMonthNumber] =
       selectedMonth.split('-').map(Number);
@@ -1626,22 +1774,28 @@ async function reportData(type, date, month, year) {
     end =
       selectedMonthNumber === 12
         ? `${selectedYear + 1}-01-01`
-        : `${selectedYear}-${String(selectedMonthNumber + 1).padStart(2, '0')}-01`;
+        : `${selectedYear}-${String(
+            selectedMonthNumber + 1
+          ).padStart(2, '0')}-01`;
 
     label = `Mensal — ${selectedMonth}`;
   } else if (type === 'year') {
-    const selectedYear = Number(year) || new Date().getFullYear();
+    const selectedYear =
+      Number(year) || new Date().getFullYear();
 
     start = `${selectedYear}-01-01`;
     end = `${selectedYear + 1}-01-01`;
 
     label = `Anual — ${selectedYear}`;
   } else {
-    const selectedDate = date || new Date().toISOString().slice(0, 10);
+    const selectedDate =
+      date || new Date().toISOString().slice(0, 10);
 
     start = selectedDate;
 
-    const nextDay = new Date(`${selectedDate}T00:00:00Z`);
+    const nextDay = new Date(
+      `${selectedDate}T00:00:00Z`
+    );
 
     nextDay.setUTCDate(nextDay.getUTCDate() + 1);
 
@@ -1725,7 +1879,11 @@ app.get(
     const month = today.slice(0, 7);
     const year = today.slice(0, 4);
 
-    const [dayReport, monthReport, yearReport] = await Promise.all([
+    const [
+      dayReport,
+      monthReport,
+      yearReport
+    ] = await Promise.all([
       reportData('day', today),
       reportData('month', null, month),
       reportData('year', null, null, year)
@@ -1769,7 +1927,10 @@ app.get(
       req.query.year
     );
 
-    const safeName = report.label.replace(/[^a-z0-9_-]+/gi, '_');
+    const safeName = report.label.replace(
+      /[^a-z0-9_-]+/gi,
+      '_'
+    );
 
     res.setHeader('Content-Type', 'application/pdf');
 
@@ -1899,7 +2060,7 @@ app.use((req, res, next) => {
   res.sendFile(path.join(frontend, 'index.html'));
 });
 
-// ERROS
+// TRATAMENTO DE ERROS
 
 app.use((error, _req, res, _next) => {
   console.error('Erro no AgendaPro:', error);
@@ -1911,10 +2072,13 @@ app.use((error, _req, res, _next) => {
   });
 });
 
-// BANCO DE DADOS
+// PREPARAÇÃO DO BANCO
 
 async function ensureSchema() {
-  const schemaPath = path.join(__dirname, '../sql/schema.sql');
+  const schemaPath = path.join(
+    __dirname,
+    '../sql/schema.sql'
+  );
 
   if (!fs.existsSync(schemaPath)) {
     throw new Error(
@@ -1924,6 +2088,7 @@ async function ensureSchema() {
 
   const schema = fs.readFileSync(schemaPath, 'utf8');
 
+  // O schema atualizado remove a restrição de um cliente por horário.
   await pool.query(schema);
 
   await pool.query(`
@@ -1953,7 +2118,9 @@ async function startServer() {
     await ensureSchema();
 
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`🚀 AgendaPro rodando na porta ${PORT}`);
+      console.log(
+        `🚀 AgendaPro rodando na porta ${PORT}`
+      );
 
       console.log(
         `🌐 Ambiente: ${process.env.NODE_ENV || 'development'}`

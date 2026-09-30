@@ -2,1946 +2,790 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#f8ebe6">
-<title>AgendaPro • Salão de Beleza</title>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prévia — Atendimentos e Retornos</title>
 <style>
 :root {
   --bg:#fdf6f4;
   --card:#fff;
   --text:#4a3037;
-  --muted:#9c8288;
-  --primary:#d98a9c;
-  --primary2:#c06a80;
+  --muted:#90777e;
+  --primary:#c9778e;
   --border:#f0dcdb;
-  --success:#6f9668;
-  --danger:#c9536a;
-  --warning:#c99457;
-  --sbar-bg:#f8ebe6;
-  --sbar-text:#8a6469;
-  --sbar-active-bg:#f3c9d1;
-  --sbar-active-text:#6b2c3c;
-  --sbar-border:#eccfc7;
+  --sidebar:#f8ebe6;
 }
-
-* {
-  box-sizing:border-box;
-}
-
-html {
-  -webkit-text-size-adjust:100%;
-  scroll-padding-top:16px;
-}
-
+* { box-sizing:border-box; }
 body {
   margin:0;
-  font-family:Inter,Segoe UI,Arial,sans-serif;
-  background:var(--bg);
+  font-family:Arial,sans-serif;
   color:var(--text);
+  background:var(--bg);
 }
-
-button,input,select,textarea {
-  font:inherit;
-}
-
-button {
-  cursor:pointer;
-  border:0;
-  touch-action:manipulation;
-}
-
-button,a,input,select,textarea {
-  -webkit-tap-highlight-color:transparent;
-}
-
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
-  outline:3px solid var(--primary2);
+button,input,select,textarea { font:inherit; }
+button { cursor:pointer; }
+button:focus-visible,a:focus-visible {
+  outline:3px solid var(--primary);
   outline-offset:3px;
 }
-
-img {
-  max-width:100%;
-}
-
-.app {
-  display:flex;
-  min-height:100vh;
-  min-height:100dvh;
-}
-
+button:disabled { opacity:.5; cursor:not-allowed; }
 .sidebar {
-  width:245px;
-  background:var(--sbar-bg);
-  color:var(--sbar-text);
-  padding:24px 16px;
   position:fixed;
-  top:0;
-  bottom:0;
-  left:0;
-  border-right:1px solid var(--sbar-border);
-  display:flex;
-  flex-direction:column;
-  justify-content:space-between;
-  overflow-y:auto;
-  overscroll-behavior:contain;
+  inset:0 auto 0 0;
+  width:230px;
+  padding:26px 16px;
+  background:var(--sidebar);
+  border-right:1px solid var(--border);
 }
-
-.logo {
-  font-size:21px;
-  font-weight:800;
-  padding:8px 12px 20px;
-  color:var(--text);
-}
-
-.logo span,
-.authLogo span {
-  color:var(--primary2);
-}
-
-.btn-help {
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  gap:6px;
-  width:100%;
-  min-height:44px;
-  padding:10px 12px;
-  background:#25d366;
-  color:#fff;
-  font-weight:700;
-  font-size:13px;
-  border-radius:10px;
-  text-decoration:none;
-  margin-bottom:16px;
-  box-shadow:0 2px 6px #25d36633;
-}
-
-.btn-help:hover {
-  background:#1ebe57;
-}
-
-.nav button,
-.navConfig,
-.navLogout {
+.logo { font-size:23px; font-weight:bold; margin:8px 12px 30px; }
+.logo span { color:var(--primary); }
+.nav-item {
   display:block;
-  width:100%;
-  min-height:44px;
-  text-align:left;
-  background:transparent;
-  color:var(--sbar-text);
-  padding:13px 14px;
+  padding:14px;
+  margin-bottom:6px;
   border-radius:10px;
-  margin:4px 0;
+  color:var(--muted);
 }
-
-.nav button:hover,
-.nav button.active,
-.navConfig:hover,
-.navConfig.active {
-  background:var(--sbar-active-bg);
-  color:var(--sbar-active-text);
+.nav-item.active {
+  background:#f3c9d1;
+  color:#6b2c3c;
+  font-weight:bold;
 }
-
-.navConfig {
-  margin-bottom:10px;
-}
-
-.navLogout {
-  color:#a8394f;
-  font-weight:700;
-}
-
-.navLogout:hover {
-  background:#f6d3d9;
-}
-
-.main {
-  margin-left:245px;
-  width:calc(100% - 245px);
-  min-width:0;
-  padding:26px;
-  max-width:1500px;
-}
-
-.section,
-.panel,
-.card,
-.grid > *,
-.cards > *,
-.report-grid > *,
-.field,
-.top > *,
-.clientWrap,
-.clientCard,
-.modal-box {
-  min-width:0;
-}
-
-.top {
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:16px;
+.sidebar small { display:block; margin:24px 14px; color:var(--muted); }
+main { margin-left:230px; max-width:1600px; padding:30px; }
+.preview {
+  padding:12px 16px;
+  border:1px solid #efd4a5;
+  background:#fff8e9;
+  color:#785d29;
+  border-radius:10px;
+  font-size:13px;
+  line-height:1.5;
   margin-bottom:24px;
 }
-
-.top h1 {
-  margin:0;
-  font-size:27px;
-}
-
-.subtitle {
-  color:var(--muted);
-  margin-top:5px;
-  line-height:1.5;
-  overflow-wrap:anywhere;
-}
-
+.top { display:flex; justify-content:space-between; gap:16px; align-items:center; }
+h1 { margin:0; font-size:28px; }
+.subtitle { color:var(--muted); line-height:1.5; margin:8px 0 24px; }
 .btn {
-  min-height:44px;
-  padding:11px 16px;
+  border:0;
   border-radius:9px;
-  font-weight:700;
-  line-height:1.3;
+  padding:12px 16px;
+  min-height:44px;
+  font-weight:bold;
 }
-
-.primary {
-  background:var(--primary);
-  color:#fff;
-}
-
-.primary:hover {
-  background:var(--primary2);
-}
-
-.secondary {
-  background:#f6e6e2;
-  color:#7a4a52;
-}
-
-.danger {
-  background:var(--danger);
-  color:#fff;
-}
-
-.success {
-  background:var(--success);
-  color:#fff;
-}
-
-.cards {
-  display:grid;
-  grid-template-columns:repeat(4,minmax(0,1fr));
-  gap:16px;
-  margin-bottom:20px;
-}
-
-.cards.cols-3 {
-  grid-template-columns:repeat(3,minmax(0,1fr));
-}
-
-.card {
-  background:var(--card);
-  border:1px solid var(--border);
-  border-radius:14px;
-  padding:19px;
-  box-shadow:0 2px 10px #17132108;
-}
-
-.card .label {
-  color:var(--muted);
-  font-size:13px;
-  line-height:1.4;
-}
-
-.card .value {
-  font-size:26px;
-  font-weight:800;
-  margin-top:8px;
-  overflow-wrap:anywhere;
-}
-
-.card .small {
-  font-size:12px;
-  color:var(--muted);
-  margin-top:6px;
-  line-height:1.4;
-}
-
-.grid {
-  display:grid;
-  grid-template-columns:minmax(0,1.45fr) minmax(0,.9fr);
-  gap:20px;
-}
-
-.panel {
+.primary { background:var(--primary); color:#fff; }
+.secondary { background:#f6e6e2; color:#754e58; }
+.cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin:22px 0; }
+.card,.panel,.appointment {
   background:#fff;
   border:1px solid var(--border);
   border-radius:14px;
-  padding:20px;
 }
-
-.panel h2 {
-  font-size:17px;
-  margin:0 0 16px;
-  overflow-wrap:anywhere;
-}
-
-.table-wrap {
-  width:100%;
-  max-width:100%;
+.card { padding:20px; }
+.card small { color:var(--muted); }
+.card strong { display:block; font-size:30px; margin-top:10px; }
+.panel { padding:20px; margin-bottom:20px; }
+.filters { display:flex; flex-wrap:wrap; gap:10px; }
+input,select,textarea {
+  border:1px solid var(--border);
+  background:#fff;
+  color:var(--text);
+  padding:12px;
+  border-radius:9px;
+  min-height:44px;
   min-width:0;
-  overflow-x:auto;
-  -webkit-overflow-scrolling:touch;
 }
-
-table {
-  width:100%;
-  border-collapse:collapse;
-  min-width:650px;
+input:focus,select:focus,textarea:focus {
+  outline:2px solid var(--primary);
+  outline-offset:1px;
 }
-
-th,td {
-  text-align:left;
-  padding:13px 10px;
-  border-bottom:1px solid var(--border);
-  font-size:14px;
-}
-
-th {
+#search { flex:1 1 240px; }
+.tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
+.tab {
+  background:#fff;
   color:var(--muted);
-  font-size:12px;
-  text-transform:uppercase;
+  border:1px solid var(--border);
+  padding:11px 16px;
+  border-radius:24px;
+  min-height:44px;
 }
-
-td {
-  overflow-wrap:break-word;
-}
-
+.tab.active { background:#754552; color:#fff; border-color:#754552; }
+.list { display:grid; gap:14px; }
+.appointment { padding:20px; }
+.row { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; }
+.name { font-size:18px; font-weight:bold; margin-bottom:6px; }
+.procedure { color:var(--muted); font-size:14px; }
 .badge {
   display:inline-block;
-  padding:5px 8px;
+  padding:7px 10px;
   border-radius:20px;
-  font-size:11px;
-  font-weight:700;
+  font-size:12px;
+  font-weight:bold;
   white-space:nowrap;
 }
-
-.b-agendado {
-  background:#f7e3ea;
-  color:#a84666;
-}
-
-.b-confirmado {
-  background:#eaf5e7;
-  color:#4b7d52;
-}
-
-.b-atendido {
-  background:#f5ece0;
-  color:#8a6a3f;
-}
-
-.b-cancelado {
-  background:#fbe3e6;
-  color:#b23b52;
-}
-
-.slots {
-  display:grid;
-  grid-template-columns:repeat(4,minmax(0,1fr));
-  gap:10px;
-}
-
-.slot {
-  min-width:0;
-  min-height:72px;
-  padding:13px;
-  border:1px solid var(--border);
-  border-radius:10px;
-  background:#fafafa;
-  cursor:pointer;
-  overflow-wrap:anywhere;
-  touch-action:manipulation;
-}
-
-.slot strong {
-  display:block;
-}
-
-.slot.free {
-  border-color:#dfe9da;
-  background:#f7faf4;
-  color:#4b7d52;
-}
-
-.slot.busy {
-  background:#faeef0;
-  border-color:#f0d3d8;
-  cursor:not-allowed;
-  opacity:.55;
-}
-
-.slot.selected {
-  outline:2px solid var(--primary);
-  background:#f1e9ff;
-}
-
-.slot small {
-  display:block;
-  color:var(--muted);
-  margin-top:5px;
-}
-
-.modal {
-  position:fixed;
-  inset:0;
-  background:#0006;
-  display:none;
-  align-items:center;
-  justify-content:center;
-  padding:20px;
-  z-index:100;
-  overflow-y:auto;
-}
-
-.modal.show {
-  display:flex;
-}
-
-.modal-box {
-  background:#fff;
-  width:min(650px,100%);
-  max-height:90vh;
-  max-height:90dvh;
-  overflow-y:auto;
-  border-radius:16px;
-  padding:24px;
-  overscroll-behavior:contain;
-  -webkit-overflow-scrolling:touch;
-}
-
-.modal-head {
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:12px;
-}
-
-.modal-head h2 {
-  margin:0;
-  overflow-wrap:anywhere;
-}
-
-.close {
-  flex-shrink:0;
-  min-width:44px;
-  min-height:44px;
-  background:#f6e6e2;
-  color:#7a4a52;
-  border-radius:8px;
-  padding:7px 11px;
-}
-
-.form {
-  display:grid;
-  grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:14px;
-  margin-top:18px;
-}
-
-.field {
-  display:flex;
-  flex-direction:column;
-  gap:6px;
-}
-
-.field.full,
-.form-actions.full {
-  grid-column:1/-1;
-}
-
-.field label {
-  font-size:13px;
-  font-weight:700;
-  line-height:1.4;
-}
-
-.field input,
-.field select,
-.field textarea {
-  width:100%;
-  min-width:0;
-  max-width:100%;
-  min-height:44px;
-  padding:11px;
-  border:1px solid #ecd7d5;
-  border-radius:9px;
-  background:#fff;
-  color:var(--text);
-}
-
-.field input:focus,
-.field select:focus,
-.field textarea:focus {
-  border-color:var(--primary);
-}
-
-textarea {
-  min-height:80px;
-  resize:vertical;
-}
-
-.form-actions {
-  display:flex;
-  justify-content:flex-end;
-  flex-wrap:wrap;
-  gap:9px;
-  margin-top:18px;
-}
-
-.section {
-  display:none;
-}
-
-.section.active {
-  display:block;
-}
-
-.empty {
-  text-align:center;
-  color:var(--muted);
-  padding:35px;
-  line-height:1.5;
-}
-
-.report-grid {
+.pending { background:#fff1d8; color:#886019; }
+.late { background:#fce3e8; color:#a33450; }
+.scheduled { background:#e9f3e5; color:#46703b; }
+.neutral { background:#f1edef; color:#79636b; }
+.details {
   display:grid;
   grid-template-columns:repeat(3,minmax(0,1fr));
-  gap:16px;
+  gap:14px;
+  margin:20px 0;
 }
-
-.bar {
-  height:12px;
-  background:#eee;
-  border-radius:20px;
-  overflow:hidden;
-}
-
-.bar i {
-  display:block;
-  height:100%;
-  background:var(--primary);
-  border-radius:20px;
-}
-
-.filters {
+.details small { display:block; color:var(--muted); margin-bottom:6px; }
+.details strong { font-size:14px; }
+.note { color:var(--muted); font-size:14px; line-height:1.5; margin:0 0 18px; }
+.actions { display:flex; flex-wrap:wrap; gap:8px; }
+.agenda-title { margin:28px 0 14px; font-size:20px; }
+.agenda-item {
   display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-  margin-bottom:15px;
-}
-
-.filters input,
-.filters select {
-  min-width:0;
-  max-width:100%;
-  min-height:44px;
-  padding:10px;
-  border:1px solid var(--border);
-  border-radius:9px;
-  background:#fff;
-  color:var(--text);
-}
-
-.photo-preview {
-  width:140px;
-  height:140px;
-  object-fit:cover;
-  border-radius:12px;
-  border:1px solid var(--border);
-  margin-top:8px;
-}
-
-.client-photo {
-  width:52px;
-  height:52px;
-  object-fit:cover;
-  border-radius:10px;
-  vertical-align:middle;
-  margin-right:8px;
-}
-
-.sidebarFooter {
-  padding-top:14px;
-  border-top:1px solid var(--sbar-border);
-}
-
-.userTag {
-  color:var(--sbar-text);
-  font-size:13px;
-  padding:8px 14px;
-  font-weight:700;
-}
-
-.sidebarCredits {
-  font-size:11px;
-  text-align:center;
-  color:var(--muted);
-  padding-top:10px;
-  line-height:1.4;
-}
-
-.authWrap {
-  position:fixed;
-  inset:0;
-  display:flex;
-  align-items:flex-start;
-  justify-content:center;
-  background:linear-gradient(135deg,#fbe6e2,#f2c4cd);
-  padding:20px;
-  overflow-y:auto;
-  z-index:50;
-}
-
-.authBox {
-  margin:auto;
-  background:#fff;
-  border-radius:18px;
-  padding:32px;
-  width:min(420px,100%);
-  min-width:0;
-  box-shadow:0 20px 60px #7a4a5225;
-}
-
-.authLogo {
-  font-size:24px;
-  font-weight:800;
-  text-align:center;
-  margin-bottom:6px;
-  color:var(--text);
-}
-
-.authSub {
-  color:var(--muted);
-  text-align:center;
-  margin-bottom:20px;
-  overflow-wrap:anywhere;
-}
-
-.roleBtn {
-  display:block;
-  width:100%;
-  min-height:64px;
-  text-align:left;
-  padding:16px;
-  border:1px solid var(--border);
-  border-radius:12px;
-  margin-bottom:12px;
-  background:#fdf6f4;
-  font-weight:700;
-  font-size:15px;
-  color:var(--text);
-}
-
-.roleBtn:hover {
-  border-color:var(--primary);
-  background:#fbeaee;
-}
-
-.roleBtn .roleDesc {
-  display:block;
-  font-weight:400;
-  font-size:12.5px;
-  color:var(--muted);
-  margin-top:3px;
-}
-
-.loginForm .field {
-  margin-bottom:14px;
-}
-
-.loginError {
-  color:var(--danger);
-  font-size:13px;
-  min-height:18px;
-}
-
-.clientPage {
-  min-height:100vh;
-  min-height:100dvh;
-  background:var(--bg);
-  padding:24px;
-}
-
-.clientWrap {
-  max-width:640px;
-  margin:0 auto;
-}
-
-.clientHeader {
-  display:flex;
-  justify-content:space-between;
   align-items:center;
-  gap:12px;
-  margin-bottom:20px;
-}
-
-.clientCard {
+  gap:16px;
   background:#fff;
-  border-radius:16px;
-  padding:28px;
-  box-shadow:0 2px 10px #17132108;
-  text-align:left;
-}
-
-.clientCard h1 {
-  margin:0 0 6px;
-}
-
-.successIcon {
-  font-size:48px;
-  text-align:center;
+  border:1px solid var(--border);
+  border-left:5px solid var(--primary);
+  border-radius:10px;
+  padding:16px;
   margin-bottom:10px;
 }
-
-#clientSuccess {
-  text-align:center;
+.agenda-item strong { display:block; }
+.agenda-item small { display:block; color:var(--muted); margin-top:5px; }
+.agenda-item .badge { margin-left:auto; }
+.empty { padding:24px; text-align:center; color:var(--muted); }
+dialog {
+  border:0;
+  border-radius:16px;
+  width:min(540px,calc(100% - 24px));
+  max-height:90vh;
+  max-height:90dvh;
+  padding:24px;
+  color:var(--text);
+  overflow:auto;
 }
-
-.btn-sm {
-  padding:7px 10px;
-  font-size:12px;
-  border-radius:6px;
-  margin:2px 0;
-  display:inline-block;
-  text-decoration:none;
+dialog::backdrop { background:#30202b80; }
+dialog h2 { margin:0; font-size:22px; }
+.close {
+  border:0;
+  background:#f6e6e2;
+  border-radius:8px;
+  min-width:44px;
+  min-height:44px;
+  color:var(--text);
 }
-
-.report-downloads {
-  display:flex;
-  gap:8px;
-  flex-wrap:wrap;
-  justify-content:flex-end;
+.field { display:grid; gap:7px; margin-top:18px; }
+.field label { font-size:14px; font-weight:bold; }
+.field input,.field select,.field textarea { width:100%; }
+.check { display:flex; gap:10px; align-items:center; margin-top:20px; }
+.check input { width:20px; height:20px; min-height:20px; accent-color:var(--primary); }
+.footer { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:10px; margin-top:24px; }
+.hint { font-size:13px; color:var(--muted); line-height:1.5; }
+.notice { padding:12px; background:#fdf2f5; border-radius:9px; line-height:1.5; margin-top:16px; }
+#message { color:#46703b; min-height:22px; margin:12px 0; }
+[hidden] { display:none !important; }
+@media(max-width:900px) {
+  .sidebar { position:static; width:100%; padding:16px; border-right:0; border-bottom:1px solid var(--border); }
+  .logo { margin:0 0 12px; }
+  .navigation { display:flex; flex-wrap:wrap; gap:6px; }
+  .nav-item { font-size:13px; margin:0; padding:10px; }
+  .sidebar small { margin:12px 0 0; }
+  main { margin:0; padding:20px 14px; }
 }
-
-.tableHint {
-  display:none;
-}
-
-.mb-20 {
-  margin-bottom:20px;
-}
-
-.mt-14 {
-  margin-top:14px;
-}
-
-/* TABLETS */
-
-@media (min-width:761px) and (max-width:1100px) {
-  .sidebar {
-    width:210px;
-    padding:20px 12px;
-  }
-
-  .main {
-    margin-left:210px;
-    width:calc(100% - 210px);
-    padding:20px;
-  }
-
-  .cards,
-  .cards.cols-3 {
-    grid-template-columns:repeat(2,minmax(0,1fr));
-  }
-
-  .grid {
-    grid-template-columns:minmax(0,1fr);
-  }
-
-  .top {
-    flex-wrap:wrap;
-  }
-
-  .report-downloads {
-    justify-content:flex-start;
-  }
-
-  .report-grid {
-    gap:10px;
-  }
-
-  .report-grid .card {
-    padding:14px;
-  }
-
-  .slots {
-    grid-template-columns:repeat(3,minmax(0,1fr));
-  }
-}
-
-/* CELULARES */
-
-@media (max-width:760px) {
-  input,
-  select,
-  textarea {
-    font-size:16px;
-  }
-
-  .app {
-    flex-direction:column;
-    width:100%;
-  }
-
-  .sidebar {
-    position:relative;
-    top:auto;
-    bottom:auto;
-    left:auto;
-    width:100%;
-    padding:12px;
-    padding-top:max(12px,env(safe-area-inset-top));
-    padding-left:max(12px,env(safe-area-inset-left));
-    padding-right:max(12px,env(safe-area-inset-right));
-    border-right:0;
-    border-bottom:1px solid var(--sbar-border);
-    overflow:visible;
-    gap:10px;
-  }
-
-  .sidebarTop {
-    display:grid;
-    grid-template-columns:minmax(0,1fr) auto;
-    align-items:center;
-    gap:10px;
-  }
-
-  .logo {
-    padding:0;
-    font-size:21px;
-  }
-
-  .btn-help {
-    width:auto;
-    max-width:150px;
-    margin:0;
-    padding:10px;
-    font-size:12px;
-  }
-
-  .nav {
-    grid-column:1/-1;
-    display:grid;
-    grid-template-columns:repeat(3,minmax(0,1fr));
-    gap:6px;
-  }
-
-  .nav button {
-    width:100%;
-    min-height:48px;
-    margin:0;
-    padding:10px 6px;
-    text-align:center;
-    font-size:13px;
-    font-weight:600;
-    line-height:1.35;
-    overflow-wrap:anywhere;
-    border:1px solid var(--sbar-border);
-  }
-
-  .sidebarFooter {
-    display:flex;
-    align-items:center;
-    flex-wrap:wrap;
-    gap:6px;
-    padding-top:10px;
-  }
-
-  .userTag {
-    flex:1 1 110px;
-    padding:6px 0;
-    font-size:12px;
-  }
-
-  .navConfig,
-  .navLogout {
-    width:auto;
-    min-height:44px;
-    margin:0;
-    padding:10px;
-    font-size:13px;
-  }
-
-  .sidebarCredits {
-    display:none;
-  }
-
-  .main {
-    margin-left:0;
-    width:100%;
-    max-width:none;
-    padding:18px 12px;
-    padding-left:max(12px,env(safe-area-inset-left));
-    padding-right:max(12px,env(safe-area-inset-right));
-    padding-bottom:max(24px,env(safe-area-inset-bottom));
-  }
-
-  .top {
-    flex-direction:column;
-    align-items:stretch;
-    gap:14px;
-    margin-bottom:18px;
-  }
-
-  .top h1 {
-    font-size:24px;
-  }
-
-  .subtitle {
-    font-size:14px;
-  }
-
-  .top > .btn {
-    width:100%;
-  }
-
-  .cards,
-  .cards.cols-3 {
-    grid-template-columns:repeat(2,minmax(0,1fr));
-    gap:10px;
-    margin-bottom:14px;
-  }
-
-  .card {
-    padding:14px;
-  }
-
-  .card .label {
-    font-size:12px;
-  }
-
-  .card .value {
-    font-size:22px;
-    line-height:1.25;
-  }
-
-  .grid {
-    grid-template-columns:minmax(0,1fr);
-    gap:14px;
-  }
-
-  .panel {
-    padding:15px;
-    border-radius:12px;
-  }
-
-  .panel h2 {
-    font-size:16px;
-    line-height:1.4;
-  }
-
-  .report-grid {
-    grid-template-columns:minmax(0,1fr);
-    gap:10px;
-  }
-
-  .filters {
-    display:grid;
-    grid-template-columns:repeat(2,minmax(0,1fr));
-    gap:10px;
-  }
-
-  .filters input,
-  .filters select,
-  .filters .btn {
-    width:100%;
-    min-width:0;
-    min-height:46px;
-  }
-
-  .filters input:not([type="date"]) {
-    grid-column:1/-1;
-  }
-
-  #clientes .filters > .btn,
-  #procedimentos .filters > .btn {
-    grid-column:1/-1;
-  }
-
-  .slots {
-    grid-template-columns:repeat(2,minmax(0,1fr));
-    gap:9px;
-  }
-
-  .slot {
-    padding:12px;
-    min-height:84px;
-    font-size:14px;
-  }
-
-  .slot strong {
-    font-size:16px;
-    margin-bottom:4px;
-  }
-
-  .slot small {
-    font-size:12px;
-    line-height:1.35;
-  }
-
-  .tableHint {
-    display:block;
-    margin:0 0 10px;
-    font-size:12px;
-    color:var(--muted);
-  }
-
-  .table-wrap {
-    border-radius:8px;
-  }
-
-  th,td {
-    padding:12px 9px;
-  }
-
-  .btn-sm {
-    min-height:44px;
-    padding:10px 12px;
-    font-size:13px;
-  }
-
-  .empty {
-    padding:24px 10px;
-    font-size:14px;
-  }
-
-  .form {
-    grid-template-columns:minmax(0,1fr);
-    gap:14px;
-  }
-
-  .form-actions {
-    width:100%;
-    display:flex;
-    flex-wrap:wrap;
-    gap:10px;
-  }
-
-  .form-actions .btn {
-    flex:1 1 120px;
-  }
-
-  .field input,
-  .field select,
-  .field textarea {
-    min-height:48px;
-    font-size:16px;
-  }
-
-  .field input[type="file"] {
-    font-size:14px;
-    padding:9px;
-  }
-
-  .field input[type="file"]::file-selector-button {
-    min-height:36px;
-    max-width:100%;
-    border:0;
-    border-radius:6px;
-    padding:6px 8px;
-    margin-right:8px;
-    background:#f6e6e2;
-    color:var(--text);
-  }
-
-  .modal {
-    padding:10px;
-    padding-top:max(10px,env(safe-area-inset-top));
-    padding-bottom:max(10px,env(safe-area-inset-bottom));
-  }
-
-  .modal-box {
-    width:100%;
-    max-height:calc(100vh - 40px);
-    max-height:calc(
-      100dvh - 24px -
-      env(safe-area-inset-top) -
-      env(safe-area-inset-bottom)
-    );
-    padding:18px 15px;
-    border-radius:14px;
-  }
-
-  .modal-head h2 {
-    font-size:20px;
-  }
-
-  .authWrap {
-    padding:16px;
-    padding-top:max(16px,env(safe-area-inset-top));
-    padding-bottom:max(16px,env(safe-area-inset-bottom));
-  }
-
-  .authBox {
-    padding:24px 20px;
-  }
-
-  .clientPage {
-    padding:16px 12px;
-    padding-top:max(16px,env(safe-area-inset-top));
-    padding-bottom:max(20px,env(safe-area-inset-bottom));
-  }
-
-  .clientHeader {
-    margin-bottom:16px;
-  }
-
-  .clientHeader .authLogo {
-    font-size:22px;
-    text-align:left;
-    margin:0;
-  }
-
-  .clientCard {
-    padding:20px 15px;
-  }
-
-  .clientCard h1 {
-    font-size:24px;
-  }
-
-  .report-downloads {
-    display:grid;
-    grid-template-columns:minmax(0,1fr);
-    width:100%;
-    gap:8px;
-  }
-
-  .report-downloads .btn {
-    width:100%;
-    min-height:46px;
-  }
-
-  #editAvailableHours {
-    width:100%;
-    min-height:46px;
-  }
-
-  #openingHoursPanel #openingHoursDays {
-    grid-template-columns:minmax(0,1fr);
-  }
-
-  #openingHoursPanel .attendance-row {
-    min-width:0;
-    align-items:center;
-  }
-
-  #openingHoursPanel .attendance-row input {
-    min-height:46px;
-    font-size:16px;
-  }
-
-  #openingHoursPanel .opening-actions {
-    flex-direction:column;
-  }
-
-  #openingHoursPanel .opening-actions button {
-    width:100%;
-    min-height:46px;
-  }
-
-  #openingHoursPanel .attendance-row button {
-    flex-shrink:0;
-    min-height:44px;
-  }
-}
-
-@media (max-width:380px) {
-  .sidebarTop {
-    grid-template-columns:minmax(0,1fr);
-  }
-
-  .logo {
-    text-align:center;
-  }
-
-  .btn-help {
-    width:100%;
-    max-width:none;
-  }
-
-  .nav {
-    grid-template-columns:repeat(2,minmax(0,1fr));
-  }
-
-  .cards,
-  .cards.cols-3 {
-    grid-template-columns:minmax(0,1fr);
-  }
-
-  .filters {
-    grid-template-columns:minmax(0,1fr);
-  }
-
-  .userTag {
-    flex-basis:100%;
-    text-align:center;
-  }
-
-  .navConfig,
-  .navLogout {
-    flex:1 1 auto;
-    text-align:center;
-  }
+@media(max-width:560px) {
+  .top { align-items:stretch; flex-direction:column; }
+  h1 { font-size:24px; }
+  .cards { gap:8px; }
+  .card { padding:14px 10px; }
+  .card small { font-size:11px; }
+  .card strong { font-size:25px; }
+  .details { grid-template-columns:1fr; gap:12px; }
+  .row { flex-wrap:wrap; }
+  .actions .btn { flex:1 1 160px; }
+  .filters>* { width:100%; }
+  .appointment,.panel { padding:16px; }
+  input,select,textarea { font-size:16px; }
+  .agenda-item { flex-wrap:wrap; gap:10px; }
+  .agenda-item .badge { margin-left:0; }
 }
 </style>
 </head>
-
 <body>
 
-<div class="authWrap" id="authScreen">
-  <div class="authBox">
-    <div class="authLogo">✂️ Agenda<span>Pro</span></div>
+<aside class="sidebar">
+  <div class="logo">✂️ Agenda<span>Pro</span></div>
+  <div class="navigation" aria-label="Exemplo do menu">
+    <span class="nav-item">🏠 Dashboard</span>
+    <span class="nav-item">📅 Agenda</span>
+    <span class="nav-item">👥 Clientes</span>
+    <span class="nav-item active">🔄 Atendimentos e Retornos</span>
+    <span class="nav-item">📊 Relatórios</span>
+  </div>
+  <small>Prévia visual · menu ilustrativo</small>
+</aside>
 
-    <div id="roleSelect">
-      <p class="authSub">Como você quer entrar?</p>
+<main>
+  <div class="preview">
+    <strong>Demonstração independente.</strong>
+    Dados fictícios. As alterações ficam somente nesta página e são
+    descartadas quando você a recarrega.
+  </div>
 
-      <button type="button" class="roleBtn" onclick="selectRole('admin')">
-        👑 Administrador
-        <span class="roleDesc">Acesso completo ao sistema</span>
-      </button>
+  <div class="top">
+    <h1>Atendimentos e Retornos</h1>
+    <button class="btn secondary" id="resetDemo" type="button">Reiniciar demonstração</button>
+  </div>
 
-      <button type="button" class="roleBtn" onclick="selectRole('funcionario')">
-        👤 Funcionário
-        <span class="roleDesc">Agenda, clientes e atendimentos</span>
-      </button>
+  <p class="subtitle">
+    Escolha a data de retorno de cada atendimento e agende o próximo horário.
+  </p>
 
-      <button type="button" class="roleBtn" onclick="selectRole('cliente')">
-        📱 Sou cliente
-        <span class="roleDesc">Marcar meu horário</span>
-      </button>
+  <div class="cards">
+    <div class="card">
+      <small>Retornos pendentes</small>
+      <strong id="pendingCount">0</strong>
+    </div>
+    <div class="card">
+      <small>Retornos agendados</small>
+      <strong id="scheduledCount">0</strong>
+    </div>
+    <div class="card">
+      <small>Retornos atrasados</small>
+      <strong id="lateCount">0</strong>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="filters">
+      <input id="search" type="search" placeholder="Buscar cliente ou procedimento" aria-label="Buscar cliente ou procedimento">
+      <select id="procedureFilter" aria-label="Filtrar por procedimento">
+        <option value="">Todos os procedimentos</option>
+        <option>Coloração</option>
+        <option>Manutenção de unhas</option>
+        <option>Hidratação</option>
+        <option>Corte</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="tabs" aria-label="Filtrar situação">
+    <button type="button" class="tab active" data-filter="all" aria-pressed="true">Todos</button>
+    <button type="button" class="tab" data-filter="pending" aria-pressed="false">Pendentes</button>
+    <button type="button" class="tab" data-filter="scheduled" aria-pressed="false">Agendados</button>
+    <button type="button" class="tab" data-filter="late" aria-pressed="false">Atrasados</button>
+    <button type="button" class="tab" data-filter="none" aria-pressed="false">Sem retorno</button>
+  </div>
+
+  <div id="message" role="status" aria-live="polite"></div>
+  <div class="list" id="appointmentList"></div>
+
+  <h2 class="agenda-title">Como o retorno aparecerá na Agenda</h2>
+  <p class="hint">Os horários abaixo também são fictícios.</p>
+  <div id="agendaPreview"></div>
+</main>
+
+<dialog id="returnDialog" aria-labelledby="returnTitle">
+  <form id="returnForm">
+    <div class="row">
+      <h2 id="returnTitle">Definir retorno</h2>
+      <button type="button" class="close" data-close="returnDialog" aria-label="Fechar">✕</button>
     </div>
 
-    <form id="loginForm" class="loginForm" style="display:none">
-      <p class="authSub" id="loginRoleLabel"></p>
+    <p class="subtitle" id="returnClient"></p>
+
+    <label class="check">
+      <input type="checkbox" id="needsReturn">
+      Este atendimento precisa de retorno
+    </label>
+
+    <div id="returnFields">
+      <div class="field">
+        <label for="returnDate">Data prevista para retorno</label>
+        <input id="returnDate" type="date">
+      </div>
 
       <div class="field">
-        <label for="loginPassword">Senha de acesso</label>
-        <input
-          type="password"
-          id="loginPassword"
-          required
-          autocomplete="current-password"
-          placeholder="Digite a senha"
-        >
+        <label for="returnNote">Observação do retorno</label>
+        <textarea id="returnNote" rows="3" placeholder="Ex.: avaliar a cor e retocar a raiz"></textarea>
       </div>
 
-      <div class="loginError" id="loginError" role="alert"></div>
-
-      <div class="form-actions">
-        <button type="button" class="btn secondary" onclick="backToRoles()">
-          Voltar
-        </button>
-        <button type="submit" class="btn primary">Entrar</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<div class="app" id="app" style="display:none">
-  <aside class="sidebar">
-    <div class="sidebarTop">
-      <div class="logo">✂️ Agenda<span>Pro</span></div>
-
-      <a
-        href="https://wa.me/5585991021170"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="btn-help"
-      >
-        💬 Precisa de ajuda?
-      </a>
-
-      <nav class="nav" aria-label="Menu principal"></nav>
+      <p class="hint">
+        Essa data registra quando o cliente deve voltar.
+        Para reservar um horário, use “Agendar retorno”.
+      </p>
     </div>
 
-    <div class="sidebarFooter">
-      <div class="userTag" id="userTag"></div>
-
-      <button type="button" class="navConfig" id="configNavBtn">
-        ⚙️ Configurações
-      </button>
-
-      <button type="button" class="navLogout" onclick="logout()">
-        🚪 Sair
-      </button>
-
-      <div class="sidebarCredits">
-        © 2026 Sistema. All rights reserved.
-        <br>
-        Made with ❤ and ☕ by <b>Wandame Aguiar</b>
-      </div>
+    <div class="footer">
+      <button type="button" class="btn secondary" data-close="returnDialog">Cancelar</button>
+      <button type="submit" class="btn primary">Salvar retorno</button>
     </div>
-  </aside>
+  </form>
+</dialog>
 
-  <main class="main">
+<dialog id="bookingDialog" aria-labelledby="bookingTitle">
+  <form id="bookingForm">
+    <div class="row">
+      <h2 id="bookingTitle">Agendar retorno</h2>
+      <button type="button" class="close" data-close="bookingDialog" aria-label="Fechar">✕</button>
+    </div>
 
-    <section id="dashboard" class="section active">
-      <div class="top">
-        <div>
-          <h1>Dashboard</h1>
-          <div class="subtitle" id="todayLabel"></div>
-        </div>
+    <p class="subtitle" id="bookingClient"></p>
 
-        <button type="button" class="btn primary" onclick="openModal()">
-          + Novo agendamento
-        </button>
-      </div>
+    <div class="notice">
+      <strong>🔄 Retorno</strong>
+      <div id="bookingOrigin"></div>
+    </div>
 
-      <div class="cards" id="dashCards">
-        <div class="card">
-          <div class="label">Faturamento hoje</div>
-          <div class="value" id="todayRevenue">R$ 0,00</div>
-          <div class="small" id="todayCount">0 atendimentos</div>
-        </div>
+    <div class="field">
+      <label for="bookingProcedure">Procedimento do próximo atendimento</label>
+      <select id="bookingProcedure" required>
+        <option>Coloração</option>
+        <option>Manutenção de unhas</option>
+        <option>Hidratação</option>
+        <option>Corte</option>
+      </select>
+    </div>
 
-        <div class="card">
-          <div class="label">Faturamento da semana</div>
-          <div class="value" id="weekRevenue">R$ 0,00</div>
-          <div class="small" id="weekCount">0 atendimentos</div>
-        </div>
+    <div class="field">
+      <label for="bookingDate">Data do próximo atendimento</label>
+      <input type="date" id="bookingDate" required>
+    </div>
 
-        <div class="card" id="monthCardWrap">
-          <div class="label">Faturamento do mês</div>
-          <div class="value" id="monthRevenue">R$ 0,00</div>
-          <div class="small" id="monthCount">0 atendimentos</div>
-        </div>
+    <div class="field">
+      <label for="bookingTime">Horário disponível na demonstração</label>
+      <select id="bookingTime" required></select>
+    </div>
 
-        <div class="card">
-          <div class="label">Horários livres hoje</div>
-          <div class="value" id="freeCount">0</div>
-          <div class="small">considerando os horários configurados</div>
-        </div>
-      </div>
+    <p class="hint">
+      Nesta prévia, o horário das 12h está bloqueado.
+      Horários já usados pelos retornos desta demonstração também ficam indisponíveis.
+    </p>
 
-      <div class="panel mb-20">
-        <h2>🔎 Filtrar por período</h2>
+    <div class="footer">
+      <button type="button" class="btn secondary" data-close="bookingDialog">Cancelar</button>
+      <button type="submit" class="btn primary" id="confirmBooking">Confirmar retorno</button>
+    </div>
+  </form>
+</dialog>
 
-        <div class="filters">
-          <input type="date" id="dashFilterStart" aria-label="Data inicial">
-          <input type="date" id="dashFilterEnd" aria-label="Data final">
+<script>
+const $ = id => document.getElementById(id);
 
-          <button type="button" class="btn primary" onclick="applyDashboardFilter()">
-            Filtrar
-          </button>
+function localDate(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
-          <button type="button" class="btn secondary" onclick="clearDashboardFilter()">
-            Limpar
-          </button>
-        </div>
+function relativeDate(days) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return localDate(date);
+}
 
-        <div class="report-grid" id="dashFilterCards" style="display:none">
-          <div class="card">
-            <div class="label">Faturamento no período</div>
-            <div class="value" id="dashFilterRevenue">R$ 0,00</div>
-          </div>
+function formatDate(value) {
+  if (!value) return "Não definida";
+  return new Date(value + "T12:00:00").toLocaleDateString("pt-BR");
+}
 
-          <div class="card">
-            <div class="label">Atendimentos</div>
-            <div class="value" id="dashFilterCount">0</div>
-          </div>
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, character => ({
+    "&":"&amp;",
+    "<":"&lt;",
+    ">":"&gt;",
+    '"':"&quot;",
+    "'":"&#039;"
+  })[character]);
+}
 
-          <div class="card">
-            <div class="label">Ticket médio</div>
-            <div class="value" id="dashFilterTicket">R$ 0,00</div>
-          </div>
-        </div>
+function initialData() {
+  return [
+    {
+      id:1,
+      client:"Maria Silva",
+      procedure:"Coloração",
+      attendedDate:relativeDate(-25),
+      needsReturn:true,
+      returnDate:relativeDate(5),
+      note:"Avaliar a cor e retocar a raiz.",
+      booking:null
+    },
+    {
+      id:2,
+      client:"Ana Souza",
+      procedure:"Manutenção de unhas",
+      attendedDate:relativeDate(-22),
+      needsReturn:true,
+      returnDate:relativeDate(-2),
+      note:"Manutenção e avaliação das unhas.",
+      booking:null
+    },
+    {
+      id:3,
+      client:"Juliana Costa",
+      procedure:"Hidratação",
+      attendedDate:relativeDate(-12),
+      needsReturn:true,
+      returnDate:relativeDate(3),
+      note:"Reavaliar o ressecamento do cabelo.",
+      booking:{
+        date:relativeDate(3),
+        time:"14:00",
+        procedure:"Hidratação"
+      }
+    },
+    {
+      id:4,
+      client:"Carla Oliveira",
+      procedure:"Corte",
+      attendedDate:relativeDate(-1),
+      needsReturn:false,
+      returnDate:"",
+      note:"",
+      booking:null
+    }
+  ];
+}
 
-        <div
-          class="table-wrap mt-14"
-          id="dashFilterTable"
-          tabindex="0"
-          role="region"
-          aria-label="Atendimentos do período; deslize para ver todas as colunas"
-        ></div>
-      </div>
+let records = initialData();
+let activeFilter = "all";
+let selectedId = null;
 
-      <div class="grid">
-        <div class="panel">
-          <h2>Próximos atendimentos</h2>
-          <p class="tableHint">Deslize a tabela para os lados para ver todas as colunas.</p>
-          <div id="nextAppointments"></div>
-        </div>
+function statusOf(record) {
+  if (record.booking) return "scheduled";
+  if (!record.needsReturn) return "none";
+  return record.returnDate < localDate() ? "late" : "pending";
+}
 
-        <div class="panel" id="monthSummaryPanel">
-          <h2>Resumo do mês</h2>
-          <div id="monthSummary"></div>
-        </div>
-      </div>
-    </section>
+const labels = {
+  pending:"Retorno pendente",
+  late:"Retorno atrasado",
+  scheduled:"Retorno agendado",
+  none:"Sem retorno definido"
+};
 
-    <section id="agenda" class="section">
-      <div class="top">
-        <div>
-          <h1>Agenda</h1>
-          <div class="subtitle">Controle seus horários e atendimentos</div>
-        </div>
+function render() {
+  $("pendingCount").textContent =
+    records.filter(record => statusOf(record) === "pending").length;
 
-        <button type="button" class="btn primary" onclick="openModal()">
-          + Novo agendamento
-        </button>
-      </div>
+  $("scheduledCount").textContent =
+    records.filter(record => statusOf(record) === "scheduled").length;
 
-      <input type="hidden" id="agendaDate">
+  $("lateCount").textContent =
+    records.filter(record => statusOf(record) === "late").length;
 
-      <div class="panel">
-        <div class="slots" id="slots"></div>
-      </div>
+  const search = $("search").value.trim().toLocaleLowerCase("pt-BR");
+  const procedure = $("procedureFilter").value;
 
-      <br>
+  const filtered = records.filter(record => {
+    const text = `${record.client} ${record.procedure}`.toLocaleLowerCase("pt-BR");
 
-      <div class="panel">
-        <h2>Agendamentos de hoje</h2>
-        <p class="tableHint">Deslize a tabela para os lados para acessar as ações.</p>
+    return (
+      text.includes(search) &&
+      (!procedure || record.procedure === procedure) &&
+      (activeFilter === "all" || statusOf(record) === activeFilter)
+    );
+  });
 
-        <div
-          class="table-wrap"
-          id="dayTable"
-          tabindex="0"
-          role="region"
-          aria-label="Agendamentos de hoje"
-        ></div>
-      </div>
+  $("appointmentList").innerHTML = filtered.length
+    ? filtered.map(record => {
+      const status = statusOf(record);
+      const badgeClass = status === "none" ? "neutral" : status;
+      const bookingText = record.booking
+        ? `${formatDate(record.booking.date)} às ${record.booking.time}`
+        : "Ainda não agendado";
 
-      <br>
-
-      <div class="panel">
-        <h2>🔎 Consultar período</h2>
-
-        <div class="filters">
-          <input type="date" id="agendaFilterStart" aria-label="Data inicial">
-          <input type="date" id="agendaFilterEnd" aria-label="Data final">
-
-          <button type="button" class="btn primary" onclick="applyAgendaFilter()">
-            Consultar
-          </button>
-
-          <button type="button" class="btn secondary" onclick="clearAgendaFilter()">
-            Limpar
-          </button>
-        </div>
-
-        <div class="report-grid" id="agendaFilterCards" style="display:none">
-          <div class="card">
-            <div class="label">Faturamento no período</div>
-            <div class="value" id="agendaFilterRevenue">R$ 0,00</div>
-          </div>
-
-          <div class="card">
-            <div class="label">Atendimentos</div>
-            <div class="value" id="agendaFilterCount">0</div>
-          </div>
-
-          <div class="card">
-            <div class="label">Ticket médio</div>
-            <div class="value" id="agendaFilterTicket">R$ 0,00</div>
-          </div>
-        </div>
-
-        <div
-          class="table-wrap mt-14"
-          id="agendaFilterTable"
-          tabindex="0"
-          role="region"
-          aria-label="Agendamentos do período"
-        ></div>
-      </div>
-    </section>
-
-    <section id="clientes" class="section">
-      <div class="top">
-        <div>
-          <h1>Clientes</h1>
-          <div class="subtitle">
-            Histórico de clientes cadastrados nos agendamentos
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="filters">
-          <input
-            type="search"
-            id="clientSearch"
-            aria-label="Buscar cliente pelo nome ou telefone"
-            placeholder="🔎 Buscar nome ou telefone"
-            oninput="renderClients()"
-          >
-
-          <button type="button" class="btn primary" onclick="openClientModal()">
-            + Cadastrar cliente
-          </button>
-        </div>
-
-        <p class="tableHint">Deslize a tabela para os lados para ver o histórico e as ações.</p>
-
-        <div
-          class="table-wrap"
-          id="clientTable"
-          tabindex="0"
-          role="region"
-          aria-label="Clientes cadastrados"
-        ></div>
-      </div>
-    </section>
-
-    <section id="relatorios" class="section">
-      <div class="top">
-        <div>
-          <h1>Relatórios</h1>
-          <div class="subtitle">Acompanhe o desempenho financeiro do salão</div>
-        </div>
-
-        <div class="report-downloads">
-          <button type="button" class="btn primary" onclick="downloadReportPDF('day')">
-            📄 Baixar relatório diário
-          </button>
-
-          <button type="button" class="btn primary" onclick="downloadReportPDF('month')">
-            📄 Baixar relatório mensal
-          </button>
-
-          <button type="button" class="btn primary" onclick="downloadReportPDF('year')">
-            📄 Baixar relatório anual
-          </button>
-        </div>
-      </div>
-
-      <div id="reportExportContainer">
-        <div class="report-grid">
-          <div class="card">
-            <div class="label">Hoje</div>
-            <div class="value" id="rToday">R$ 0,00</div>
-          </div>
-
-          <div class="card">
-            <div class="label">Este mês</div>
-            <div class="value" id="rMonth">R$ 0,00</div>
-          </div>
-
-          <div class="card">
-            <div class="label">Este ano</div>
-            <div class="value" id="rYear">R$ 0,00</div>
-          </div>
-        </div>
-
-        <br>
-
-        <div class="panel mb-20">
-          <h2>🔎 Filtrar por período</h2>
-
-          <div class="filters">
-            <input type="date" id="reportStartDate" aria-label="Data inicial do relatório">
-            <input type="date" id="reportEndDate" aria-label="Data final do relatório">
-
-            <button type="button" class="btn primary" onclick="applyReportFilter()">
-              Filtrar
-            </button>
-
-            <button type="button" class="btn secondary" onclick="clearReportFilter()">
-              Limpar
-            </button>
-          </div>
-
-          <div class="report-grid">
-            <div class="card">
-              <div class="label">Faturamento no período</div>
-              <div class="value" id="filteredRevenue">R$ 0,00</div>
+      return `
+        <article class="appointment">
+          <div class="row">
+            <div>
+              <div class="name">${escapeHTML(record.client)}</div>
+              <div class="procedure">${escapeHTML(record.procedure)} · Atendimento concluído</div>
             </div>
+            <span class="badge ${badgeClass}">${labels[status]}</span>
+          </div>
 
-            <div class="card">
-              <div class="label">Atendimentos</div>
-              <div class="value" id="filteredCount">0</div>
+          <div class="details">
+            <div>
+              <small>Atendimento realizado</small>
+              <strong>${formatDate(record.attendedDate)}</strong>
             </div>
-
-            <div class="card">
-              <div class="label">Ticket médio</div>
-              <div class="value" id="filteredTicket">R$ 0,00</div>
+            <div>
+              <small>Data prevista para retorno</small>
+              <strong>${record.needsReturn ? formatDate(record.returnDate) : "Não solicitado"}</strong>
+            </div>
+            <div>
+              <small>Próximo atendimento</small>
+              <strong>${bookingText}</strong>
             </div>
           </div>
-        </div>
 
-        <br>
+          ${record.note ? `<p class="note">${escapeHTML(record.note)}</p>` : ""}
 
-        <div class="panel">
-          <h2>Procedimentos mais realizados</h2>
-          <div id="procedureReport"></div>
-        </div>
-      </div>
-    </section>
+          <div class="actions">
+            ${record.booking ? `
+              <button type="button" class="btn primary" data-action="book" data-id="${record.id}">
+                Reagendar retorno
+              </button>
+              <button type="button" class="btn secondary" data-action="cancel" data-id="${record.id}">
+                Cancelar agendamento
+              </button>
+            ` : `
+              <button type="button" class="btn secondary" data-action="edit" data-id="${record.id}">
+                ${record.needsReturn ? "Alterar data de retorno" : "Definir retorno"}
+              </button>
+              ${record.needsReturn ? `
+                <button type="button" class="btn primary" data-action="book" data-id="${record.id}">
+                  📅 Agendar retorno
+                </button>
+              ` : ""}
+            `}
+          </div>
+        </article>
+      `;
+    }).join("")
+    : '<div class="panel empty">Nenhum atendimento neste filtro.</div>';
 
-    <section id="procedimentos" class="section">
-      <div class="top">
+  const booked = records
+    .filter(record => record.booking)
+    .sort((a,b) =>
+      (a.booking.date + a.booking.time).localeCompare(
+        b.booking.date + b.booking.time
+      )
+    );
+
+  $("agendaPreview").innerHTML = booked.length
+    ? booked.map(record => `
+      <div class="agenda-item">
         <div>
-          <h1>Procedimentos</h1>
-          <div class="subtitle">
-            Cadastre os procedimentos oferecidos e seus valores padrão
-          </div>
+          <strong>${formatDate(record.booking.date)}</strong>
+          <small>${record.booking.time}</small>
         </div>
-      </div>
-
-      <div class="panel">
-        <div class="filters">
-          <input
-            id="procName"
-            aria-label="Nome do procedimento"
-            placeholder="Nome do procedimento"
-          >
-
-          <input
-            id="procPrice"
-            type="number"
-            inputmode="decimal"
-            min="0"
-            step="0.01"
-            aria-label="Valor padrão do procedimento"
-            placeholder="Valor padrão (R$)"
-          >
-
-          <button type="button" class="btn primary" onclick="addProcedure()">
-            + Adicionar
-          </button>
-        </div>
-
-        <p class="tableHint">Deslize a tabela para os lados para acessar as ações.</p>
-
-        <div
-          class="table-wrap"
-          id="procedureTable"
-          tabindex="0"
-          role="region"
-          aria-label="Procedimentos cadastrados"
-        ></div>
-      </div>
-    </section>
-
-    <section id="configuracoes" class="section">
-      <div class="top">
         <div>
-          <h1>Configurações</h1>
-          <div class="subtitle">
-            Gerencie sua conta e altere sua senha de acesso
-          </div>
+          <strong>${escapeHTML(record.client)}</strong>
+          <small>${escapeHTML(record.booking.procedure)}</small>
+          <small>Vinculado ao atendimento de ${formatDate(record.attendedDate)}</small>
         </div>
+        <span class="badge scheduled">🔄 Retorno</span>
       </div>
+    `).join("")
+    : '<div class="panel empty">Os retornos agendados aparecerão aqui.</div>';
+}
 
-      <div class="panel" style="max-width:650px">
-        <h2>🔐 Alterar senha</h2>
+function showMessage(text) {
+  $("message").textContent = text;
+}
 
-        <p style="color:var(--muted);font-size:13px;margin-top:-8px">
-          A nova senha será salva permanentemente no sistema.
-        </p>
+function selectedRecord() {
+  return records.find(record => record.id === selectedId);
+}
 
-        <form id="passwordForm" class="form">
-          <div class="field full">
-            <label for="currentPassword">Senha atual *</label>
-            <input
-              type="password"
-              id="currentPassword"
-              required
-              autocomplete="current-password"
-              placeholder="Digite sua senha atual"
-            >
-          </div>
+function syncReturnFields() {
+  const enabled = $("needsReturn").checked;
+  $("returnFields").hidden = !enabled;
+  $("returnDate").required = enabled;
+  $("returnDate").disabled = !enabled;
+  $("returnNote").disabled = !enabled;
+}
 
-          <div class="field full">
-            <label for="newPassword">Nova senha *</label>
-            <input
-              type="password"
-              id="newPassword"
-              required
-              minlength="6"
-              autocomplete="new-password"
-              placeholder="Digite a nova senha"
-            >
-          </div>
+function openReturn(id) {
+  selectedId = id;
+  const record = selectedRecord();
 
-          <div class="field full">
-            <label for="confirmPassword">Confirmar nova senha *</label>
-            <input
-              type="password"
-              id="confirmPassword"
-              required
-              minlength="6"
-              autocomplete="new-password"
-              placeholder="Digite novamente a nova senha"
-            >
-          </div>
+  $("returnClient").textContent =
+    `${record.client} · ${record.procedure}`;
 
-          <div
-            id="passwordMessage"
-            role="status"
-            style="grid-column:1/-1;min-height:20px;font-size:13px"
-          ></div>
+  $("needsReturn").checked = record.needsReturn;
+  $("returnDate").min = record.attendedDate;
+  $("returnDate").value = record.returnDate;
+  $("returnNote").value = record.note;
+  syncReturnFields();
+  $("returnDialog").showModal();
+}
 
-          <div class="form-actions full">
-            <button type="button" class="btn secondary" onclick="clearPasswordForm()">
-              Limpar
-            </button>
+function renderTimes() {
+  const date = $("bookingDate").value;
+  const previous = $("bookingTime").value;
 
-            <button type="submit" class="btn primary">
-              🔐 Alterar senha
-            </button>
-          </div>
-        </form>
-      </div>
-    </section>
+  const taken = new Set(["12:00"]);
 
-  </main>
-</div>
+  records.forEach(record => {
+    if (
+      record.id !== selectedId &&
+      record.booking &&
+      record.booking.date === date
+    ) {
+      taken.add(record.booking.time);
+    }
+  });
 
-<div class="clientPage" id="clientPage" style="display:none">
-  <div class="clientWrap">
-    <div class="clientHeader">
-      <div class="authLogo">✂️ Agenda<span>Pro</span></div>
-      <button type="button" class="btn secondary" onclick="logout()">Sair</button>
-    </div>
+  const hours = [
+    "08:00","09:00","10:00","11:00",
+    "12:00","13:00","14:00","15:00",
+    "16:00","17:00","18:00","19:00"
+  ];
 
-    <div class="clientCard" id="clientStepForm">
-      <h1>Agendar horário</h1>
-      <p class="subtitle">Preencha seus dados para marcar seu atendimento</p>
+  const available = hours.filter(hour => !taken.has(hour));
 
-      <form id="clientBookingForm" class="form">
-        <div class="field">
-          <label for="cbName">Nome *</label>
-          <input id="cbName" required autocomplete="name" placeholder="Seu nome completo">
-        </div>
+  $("bookingTime").innerHTML =
+    '<option value="">Selecione um horário</option>' +
+    hours.map(hour => `
+      <option value="${hour}" ${taken.has(hour) ? "disabled" : ""}>
+        ${hour}${taken.has(hour) ? " — indisponível" : ""}
+      </option>
+    `).join("");
 
-        <div class="field">
-          <label for="cbPhone">WhatsApp *</label>
-          <input
-            id="cbPhone"
-            type="tel"
-            inputmode="tel"
-            autocomplete="tel"
-            required
-            placeholder="(85) 99999-9999"
-          >
-        </div>
+  if (available.includes(previous)) {
+    $("bookingTime").value = previous;
+  }
 
-        <div class="field full">
-          <label for="cbPhoto">Foto do cabelo (opcional)</label>
-          <input id="cbPhoto" type="file" accept="image/*">
+  $("confirmBooking").disabled = !date || !available.length;
+}
 
-          <small style="color:#73798c">
-            A foto fica salva com segurança no sistema.
-          </small>
+function openBooking(id) {
+  selectedId = id;
+  const record = selectedRecord();
+  const today = localDate();
 
-          <img
-            id="cbPhotoPreview"
-            class="photo-preview"
-            style="display:none"
-            alt="Prévia da foto"
-          >
-        </div>
+  $("bookingClient").textContent = record.client;
+  $("bookingOrigin").textContent =
+    `${record.procedure} realizado em ${formatDate(record.attendedDate)}`;
 
-        <div class="field full">
-          <label for="cbNote">Observações (opcional)</label>
-          <textarea
-            id="cbNote"
-            placeholder="Alguma preferência ou informação importante?"
-          ></textarea>
-        </div>
+  $("bookingProcedure").value =
+    record.booking?.procedure || record.procedure;
 
-        <div class="field">
-          <label for="clientProcedure">Procedimento *</label>
-          <select id="clientProcedure" required></select>
-        </div>
+  $("bookingDate").min = today;
 
-        <div class="field">
-          <label for="cbDate">Data *</label>
-          <input type="date" id="cbDate" required>
-        </div>
+  const suggested = record.booking?.date || record.returnDate || today;
+  $("bookingDate").value = suggested < today ? today : suggested;
 
-        <div class="field full">
-          <label id="cbSlotsLabel">Horário disponível *</label>
-          <div class="slots" id="cbSlots" role="group" aria-labelledby="cbSlotsLabel"></div>
-        </div>
+  $("bookingTime").value = "";
+  renderTimes();
 
-        <div class="form-actions full">
-          <button type="submit" class="btn primary">Confirmar agendamento</button>
-        </div>
-      </form>
-    </div>
+  if (record.booking) {
+    $("bookingTime").value = record.booking.time;
+  }
 
-    <div class="clientCard" id="clientSuccess" style="display:none">
-      <div class="successIcon">✅</div>
-      <h1>Agendado com sucesso!</h1>
-      <p class="subtitle" id="successDetails"></p>
+  $("bookingDialog").showModal();
+}
 
-      <button type="button" class="btn primary" onclick="newClientBooking()">
-        Fazer novo agendamento
-      </button>
-    </div>
-  </div>
-</div>
+$("returnForm").addEventListener("submit", event => {
+  event.preventDefault();
+  const record = selectedRecord();
+  const needsReturn = $("needsReturn").checked;
 
-<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="appointmentTitle">
-  <div class="modal-box">
-    <div class="modal-head">
-      <h2 id="appointmentTitle">Novo agendamento</h2>
-      <button type="button" class="close" aria-label="Fechar" onclick="closeModal()">✕</button>
-    </div>
+  record.needsReturn = needsReturn;
+  record.returnDate = needsReturn ? $("returnDate").value : "";
+  record.note = needsReturn ? $("returnNote").value.trim() : "";
 
-    <form id="appointmentForm" class="form">
-      <div class="field">
-        <label for="name">Nome do cliente *</label>
-        <input id="name" required autocomplete="name" placeholder="Ex.: Maria Silva">
-      </div>
+  $("returnDialog").close();
+  render();
 
-      <div class="field">
-        <label for="phone">Contato / WhatsApp *</label>
-        <input
-          id="phone"
-          type="tel"
-          inputmode="tel"
-          autocomplete="tel"
-          required
-          placeholder="(85) 99999-9999"
-        >
-      </div>
+  showMessage(
+    needsReturn
+      ? `Retorno de ${record.client} previsto para ${formatDate(record.returnDate)}. Agora você pode agendar o horário.`
+      : `Retorno de ${record.client} removido nesta demonstração.`
+  );
+});
 
-      <div class="field">
-        <label for="date">Data *</label>
-        <input type="date" id="date" required>
-      </div>
+$("bookingForm").addEventListener("submit", event => {
+  event.preventDefault();
+  const record = selectedRecord();
+  const date = $("bookingDate").value;
+  const time = $("bookingTime").value;
 
-      <div class="field">
-        <label for="time">Hora *</label>
-        <select id="time" required></select>
-      </div>
+  const conflict = time === "12:00" || records.some(item =>
+    item.id !== selectedId &&
+    item.booking?.date === date &&
+    item.booking?.time === time
+  );
 
-      <div class="field">
-        <label for="procedure">Procedimento *</label>
-        <select id="procedure" required></select>
-      </div>
+  if (conflict) {
+    alert("Esse horário está ocupado na demonstração. Escolha outro.");
+    renderTimes();
+    return;
+  }
 
-      <div class="field">
-        <label for="price">Valor (R$) *</label>
-        <input
-          id="price"
-          type="number"
-          inputmode="decimal"
-          min="0"
-          step="0.01"
-          required
-          placeholder="0,00"
-        >
-      </div>
+  record.booking = {
+    date,
+    time,
+    procedure:$("bookingProcedure").value
+  };
 
-      <div class="field">
-        <label for="status">Status</label>
-        <select id="status">
-          <option>Agendado</option>
-          <option>Confirmado</option>
-          <option>Atendido</option>
-          <option>Cancelado</option>
-        </select>
-      </div>
+  record.needsReturn = true;
 
-      <div class="field full">
-        <label for="note">Observação para o cliente</label>
-        <textarea id="note" placeholder="Ex.: chegar 10 minutos antes..."></textarea>
-      </div>
+  $("bookingDialog").close();
+  render();
 
-      <div class="form-actions full">
-        <button type="button" class="btn secondary" onclick="closeModal()">Cancelar</button>
-        <button type="submit" class="btn primary">Salvar agendamento</button>
-      </div>
-    </form>
-  </div>
-</div>
+  showMessage(
+    `Retorno de ${record.client} agendado para ${formatDate(date)} às ${time}. Veja a prévia da Agenda abaixo.`
+  );
+});
 
-<div
-  class="modal"
-  id="clientModal"
-  role="dialog"
-  aria-modal="true"
-  aria-labelledby="clientModalTitle"
->
-  <div class="modal-box">
-    <div class="modal-head">
-      <h2 id="clientModalTitle">Cadastro de cliente</h2>
-      <button
-        type="button"
-        class="close"
-        aria-label="Fechar"
-        onclick="closeClientModal()"
-      >✕</button>
-    </div>
+$("appointmentList").addEventListener("click", event => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
 
-    <form id="clientForm" class="form">
-      <div class="field">
-        <label for="clientName">Nome do cliente *</label>
-        <input id="clientName" required autocomplete="name" placeholder="Ex.: Maria Silva">
-      </div>
+  const id = Number(button.dataset.id);
 
-      <div class="field">
-        <label for="clientPhone">Contato / WhatsApp *</label>
-        <input
-          id="clientPhone"
-          type="tel"
-          inputmode="tel"
-          autocomplete="tel"
-          required
-          placeholder="(85) 99999-9999"
-        >
-      </div>
+  if (button.dataset.action === "edit") openReturn(id);
+  if (button.dataset.action === "book") openBooking(id);
 
-      <div class="field full">
-        <label for="clientPhoto">Foto do cabelo</label>
-        <input id="clientPhoto" type="file" accept="image/*">
+  if (button.dataset.action === "cancel") {
+    const record = records.find(item => item.id === id);
 
-        <small style="color:#73798c">
-          A foto fica salva com segurança no sistema.
-        </small>
+    if (!confirm(`Cancelar o horário de retorno de ${record.client} nesta demonstração?`)) {
+      return;
+    }
 
-        <img
-          id="photoPreview"
-          class="photo-preview"
-          style="display:none"
-          alt="Prévia da foto"
-        >
-      </div>
+    record.booking = null;
+    render();
+    showMessage("Horário cancelado. A necessidade de retorno continua registrada.");
+  }
+});
 
-      <div class="field full">
-        <label for="clientNote">Observações do cliente</label>
-        <textarea
-          id="clientNote"
-          placeholder="Ex.: prefere corte em camadas, cor utilizada, cuidados, preferências..."
-        ></textarea>
-      </div>
+document.querySelectorAll("[data-close]").forEach(button => {
+  button.addEventListener("click", () => {
+    $(button.dataset.close).close();
+  });
+});
 
-      <div class="form-actions full">
-        <button type="button" class="btn secondary" onclick="closeClientModal()">
-          Cancelar
-        </button>
-        <button type="submit" class="btn primary">Salvar cliente</button>
-      </div>
-    </form>
-  </div>
-</div>
+document.querySelectorAll("[data-filter]").forEach(button => {
+  button.addEventListener("click", () => {
+    activeFilter = button.dataset.filter;
 
-<script src="/app.js"></script>
+    document.querySelectorAll("[data-filter]").forEach(item => {
+      const active = item === button;
+      item.classList.toggle("active", active);
+      item.setAttribute("aria-pressed", String(active));
+    });
+
+    render();
+  });
+});
+
+$("needsReturn").addEventListener("change", syncReturnFields);
+$("bookingDate").addEventListener("change", renderTimes);
+$("search").addEventListener("input", render);
+$("procedureFilter").addEventListener("change", render);
+
+$("resetDemo").addEventListener("click", () => {
+  records = initialData();
+  $("search").value = "";
+  $("procedureFilter").value = "";
+  activeFilter = "all";
+
+  document.querySelectorAll("[data-filter]").forEach(button => {
+    const active = button.dataset.filter === "all";
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+
+  showMessage("Demonstração reiniciada.");
+  render();
+});
+
+render();
+</script>
 
 </body>
 </html>

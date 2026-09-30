@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     ativo BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
     CONSTRAINT usuarios_perfil_check
         CHECK (perfil IN ('admin', 'funcionario'))
 );
@@ -33,19 +34,28 @@ CREATE TABLE IF NOT EXISTS procedimentos (
 
 CREATE TABLE IF NOT EXISTS agendamentos (
     id BIGSERIAL PRIMARY KEY,
+
     cliente_id BIGINT NOT NULL
-        REFERENCES clientes(id) ON DELETE RESTRICT,
+        REFERENCES clientes(id)
+        ON DELETE RESTRICT,
+
     procedimento_id BIGINT NOT NULL
-        REFERENCES procedimentos(id) ON DELETE RESTRICT,
+        REFERENCES procedimentos(id)
+        ON DELETE RESTRICT,
+
     data DATE NOT NULL,
     hora TIME NOT NULL,
     valor NUMERIC(10,2) NOT NULL DEFAULT 0,
     status VARCHAR(30) NOT NULL DEFAULT 'Agendado',
     observacao TEXT,
+
     criado_por BIGINT
-        REFERENCES usuarios(id) ON DELETE SET NULL,
+        REFERENCES usuarios(id)
+        ON DELETE SET NULL,
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
     CONSTRAINT agendamento_status_check
         CHECK (
             status IN (
@@ -60,23 +70,33 @@ CREATE TABLE IF NOT EXISTS agendamentos (
 
 CREATE TABLE IF NOT EXISTS atendimentos (
     id BIGSERIAL PRIMARY KEY,
+
     agendamento_id BIGINT
-        REFERENCES agendamentos(id) ON DELETE SET NULL,
+        REFERENCES agendamentos(id)
+        ON DELETE SET NULL,
+
     cliente_id BIGINT NOT NULL
-        REFERENCES clientes(id) ON DELETE RESTRICT,
+        REFERENCES clientes(id)
+        ON DELETE RESTRICT,
+
     procedimento_id BIGINT NOT NULL
-        REFERENCES procedimentos(id) ON DELETE RESTRICT,
+        REFERENCES procedimentos(id)
+        ON DELETE RESTRICT,
+
     data DATE NOT NULL,
     valor NUMERIC(10,2) NOT NULL DEFAULT 0,
     observacao TEXT,
+
     atendido_por BIGINT
-        REFERENCES usuarios(id) ON DELETE SET NULL,
+        REFERENCES usuarios(id)
+        ON DELETE SET NULL,
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Atualiza também os bancos que já existem.
--- Mantém os status antigos para preservar os registros.
 BEGIN;
+
+-- Atualiza os status permitidos sem apagar os registros.
 
 ALTER TABLE agendamentos
     DROP CONSTRAINT IF EXISTS agendamento_status_check;
@@ -93,12 +113,17 @@ ALTER TABLE agendamentos
         )
     );
 
--- Cada retorno é um novo agendamento, com sua própria
--- data e hora, vinculado ao agendamento original.
+-- Vincula cada retorno ao agendamento original.
+
 ALTER TABLE agendamentos
     ADD COLUMN IF NOT EXISTS agendamento_origem_id BIGINT
     REFERENCES agendamentos(id)
     ON DELETE SET NULL;
+
+-- Remove a restrição que permitia apenas um agendamento
+-- por data e horário. Não apaga nenhum agendamento.
+
+DROP INDEX IF EXISTS uq_agendamento_horario_ativo;
 
 COMMIT;
 
@@ -108,25 +133,28 @@ CREATE INDEX IF NOT EXISTS idx_clientes_nome
 CREATE INDEX IF NOT EXISTS idx_agendamentos_data
     ON agendamentos(data);
 
+-- Este índice permite vários registros no mesmo horário.
+
+CREATE INDEX IF NOT EXISTS idx_agendamentos_data_hora
+    ON agendamentos(data, hora);
+
 CREATE INDEX IF NOT EXISTS idx_agendamentos_cliente
     ON agendamentos(cliente_id);
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_agendamento_horario_ativo
-    ON agendamentos(data, hora)
-    WHERE status <> 'Cancelado';
+CREATE INDEX IF NOT EXISTS idx_agendamentos_status
+    ON agendamentos(status);
+
+CREATE INDEX IF NOT EXISTS idx_agendamentos_origem
+    ON agendamentos(agendamento_origem_id);
+
+-- Evita duplicar a conclusão do mesmo agendamento.
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_atendimento_agendamento
     ON atendimentos(agendamento_id)
     WHERE agendamento_id IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_agendamentos_status
-    ON agendamentos(status);
 
 CREATE INDEX IF NOT EXISTS idx_atendimentos_cliente
     ON atendimentos(cliente_id);
 
 CREATE INDEX IF NOT EXISTS idx_atendimentos_data
     ON atendimentos(data);
-
-CREATE INDEX IF NOT EXISTS idx_agendamentos_origem
-    ON agendamentos(agendamento_origem_id);

@@ -12,6 +12,17 @@ let returnSaving = false;
 let returnSlotsRequestId = 0;
 let returnSlotsReady = false;
 
+let liveTimer = null;
+let refreshBusy = false;
+let refreshSequence = 0;
+let lastDataDate = "";
+let notificationDate = "";
+let notifiedIds = new Set();
+let toastTimer = null;
+
+let appointmentSaving = false;
+let publicBookingSaving = false;
+
 const $ = id => document.getElementById(id);
 
 const money = value =>
@@ -87,7 +98,7 @@ async function api(url, options = {}) {
   return data;
 }
 
-// HORÁRIOS DISPONÍVEIS
+// HORÁRIOS DE ATENDIMENTO
 
 function openingSlots(settings, date) {
   if (!settings || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -134,15 +145,13 @@ function openingSlots(settings, date) {
       minute + settings.interval <= until;
       minute += settings.interval
     ) {
-      const hourText = String(
+      const hour = String(
         Math.floor(minute / 60)
       ).padStart(2, "0");
 
-      const minuteText = String(
-        minute % 60
-      ).padStart(2, "0");
+      const mins = String(minute % 60).padStart(2, "0");
 
-      slots.push(`${hourText}:${minuteText}`);
+      slots.push(`${hour}:${mins}`);
     }
   }
 
@@ -341,7 +350,7 @@ async function saveOpeningHours(event) {
   if (new Set(slots).size !== slots.length) {
     message.style.color = "var(--danger)";
     message.textContent =
-      "Existem horários repetidos. Remova a repetição.";
+      "Existem horários repetidos na lista. Remova a repetição.";
     return;
   }
 
@@ -443,17 +452,37 @@ $("loginForm").addEventListener("submit", async event => {
 });
 
 async function logout() {
-  if (currentUser?.role !== "cliente") {
-    await api("/api/auth/logout", {
-      method: "POST"
-    }).catch(() => {});
+  clearInterval(liveTimer);
+  liveTimer = null;
+
+  refreshSequence++;
+  refreshBusy = false;
+  notificationDate = "";
+  notifiedIds = new Set();
+
+  clearTimeout(toastTimer);
+
+  if ($("dailyDialog")?.open) {
+    $("dailyDialog").close();
   }
 
   if ($("returnDialog")?.open) {
     $("returnDialog").close();
   }
 
+  if ($("dailyToast")) {
+    $("dailyToast").hidden = true;
+  }
+
+  if (currentUser?.role !== "cliente") {
+    await api("/api/auth/logout", {
+      method: "POST"
+    }).catch(() => {});
+  }
+
   currentUser = null;
+  appointments = [];
+  clients = [];
   openingHoursDirty = false;
 
   $("app").style.display = "none";
@@ -588,10 +617,11 @@ function showSection(id) {
   renderAll();
 }
 
-// INICIALIZAÇÃO DO PAINEL
+// INICIALIZAÇÃO E ATUALIZAÇÃO DOS DADOS
 
 async function initAdminApp() {
   mountReturnUI();
+  mountDailyUI();
   mountOpeningHoursPanel();
   renderNav();
 
@@ -608,17 +638,35 @@ async function initAdminApp() {
   $("reportEndDate").value = monthEnd(today);
 
   await refreshData();
+  startLiveUpdates();
 }
 
-async function refreshData() {
+async function refreshData(options = {}) {
+  if (!currentUser || currentUser.role === "cliente") {
+    return false;
+  }
+
+  const sequence = ++refreshSequence;
+  const userId = currentUser.id;
+
+  refreshBusy = true;
+
   try {
-    [procedures, clients, appointments, openingHours] =
-      await Promise.all([
-        api("/api/procedures"),
-        api("/api/clients"),
-        api("/api/appointments"),
-        api("/api/opening-hours")
-      ]);
+    const data = await Promise.all([
+      api("/api/procedures"),
+      api("/api/clients"),
+      api("/api/appointments"),
+      api("/api/opening-hours")
+    ]);
+
+    if (
+      sequence !== refreshSequence ||
+      currentUser?.id !== userId
+    ) {
+      return false;
+    }
+
+    [procedures, clients, appointments, openingHours] = data;
 
     appointments = appointments.map(appointment => ({
       ...appointment,
@@ -626,38 +674,101 @@ async function refreshData() {
       time: String(appointment.time || "").slice(0, 5)
     }));
 
+    const today = localDate();
+
+    if (
+      lastDataDate &&
+      lastDataDate !== today &&
+      $("agendaDate")?.value === lastDataDate
+    ) {
+      $("agendaDate").value = today;
+    }
+
+    lastDataDate = today;
+
     fillAllProcedureSelects();
     fillTimes();
     renderOpeningHoursEditor();
     renderAll();
+
+    if ($("liveUpdateMessage")) {
+      $("liveUpdateMessage").textContent = "";
+    }
+
+    return true;
   } catch (error) {
-    alert(error.message);
+    if (
+      sequence !== refreshSequence ||
+      currentUser?.id !== userId
+    ) {
+      return false;
+    }
+
+    if (options.silent) {
+      if ($("liveUpdateMessage")) {
+        $("liveUpdateMessage").textContent =
+          "Não foi possível atualizar agora. Tentaremos novamente.";
+      }
+    } else {
+      alert(error.message);
+    }
 
     if (/sessão|autentic/i.test(error.message)) {
       logout();
     }
+
+    return false;
+  } finally {
+    if (sequence === refreshSequence) {
+      refreshBusy = false;
+    }
   }
 }
+
+function startLiveUpdates() {
+  clearInterval(liveTimer);
+
+  if (!currentUser || currentUser.role === "cliente") return;
+
+  liveTimer = setInterval(() => {
+    if (
+      currentUser &&
+      currentUser.role !== "cliente" &&
+      !refreshBusy
+    ) {
+      refreshData({ silent: true });
+    }
+  }, 60000);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (
+    document.visibilityState === "visible" &&
+    currentUser &&
+    currentUser.role !== "cliente" &&
+    !refreshBusy
+  ) {
+    refreshData({ silent: true });
+  }
+});
+
+// NOVO AGENDAMENTO
+// Todos os horários configurados aceitam novas reservas.
 
 function fillTimes() {
   const select = $("time");
   const previous = select.value;
   const date = $("date").value || localDate();
 
-  const available = openingSlots(openingHours, date).filter(
-    hour => !appointments.some(
-      item =>
-        item.date === date &&
-        item.time === hour &&
-        item.status !== "Cancelado"
-    )
-  );
+  const available = openingSlots(openingHours, date);
 
   select.innerHTML =
     '<option value="">' +
     (available.length ? "Selecione" : "Nenhum horário disponível") +
     "</option>" +
-    available.map(hour => `<option>${hour}</option>`).join("");
+    available.map(hour => `
+      <option value="${esc(hour)}">${esc(hour)}</option>
+    `).join("");
 
   select.value = available.includes(previous) ? previous : "";
 }
@@ -686,6 +797,16 @@ function closeModal() {
 $("appointmentForm").addEventListener("submit", async event => {
   event.preventDefault();
 
+  if (appointmentSaving) return;
+
+  appointmentSaving = true;
+
+  const submit = event.currentTarget.querySelector(
+    'button[type="submit"], button:not([type])'
+  );
+
+  if (submit) submit.disabled = true;
+
   try {
     await api("/api/appointments", {
       method: "POST",
@@ -708,6 +829,9 @@ $("appointmentForm").addEventListener("submit", async event => {
     alert("Agendamento salvo com sucesso!");
   } catch (error) {
     alert(error.message);
+  } finally {
+    appointmentSaving = false;
+    if (submit) submit.disabled = false;
   }
 });
 
@@ -730,6 +854,8 @@ if ($("phone")) {
 function fillProcedureSelect(element, withPrice = false) {
   if (!element) return;
 
+  const previous = element.value;
+
   element.innerHTML =
     '<option value="">Selecione</option>' +
     procedures.map(procedure => `
@@ -741,6 +867,14 @@ function fillProcedureSelect(element, withPrice = false) {
         ${withPrice ? ` — ${money(procedure.price)}` : ""}
       </option>
     `).join("");
+
+  if (
+    [...element.options].some(
+      option => option.value === previous
+    )
+  ) {
+    element.value = previous;
+  }
 }
 
 function fillAllProcedureSelects() {
@@ -749,13 +883,16 @@ function fillAllProcedureSelects() {
 }
 
 function renderAll() {
+  if (!currentUser || currentUser.role === "cliente") return;
+
   renderDashboard();
   renderAgenda();
   renderClients();
   renderAttendances();
+  renderDailyUI();
   refreshVisibleFilters();
 
-  if (currentUser?.role === "admin") {
+  if (currentUser.role === "admin") {
     renderReports();
     renderProcedures();
   }
@@ -763,6 +900,12 @@ function renderAll() {
 
 function validSales(appointment) {
   return appointment.status !== "Cancelado";
+}
+
+function pendingAppointment(appointment) {
+  return !["Cancelado", "Atendido"].includes(
+    appointment.status
+  );
 }
 
 function periodTotals(start, end) {
@@ -799,7 +942,35 @@ function endWeek(dateValue) {
   );
 
   date.setDate(date.getDate() + 6);
+
   return date.toISOString().slice(0, 10);
+}
+
+function todayAppointments() {
+  const today = localDate();
+
+  return appointments
+    .filter(
+      appointment =>
+        appointment.date === today &&
+        pendingAppointment(appointment)
+    )
+    .sort((a, b) => a.time.localeCompare(b.time));
+}
+
+function futureAppointments() {
+  const today = localDate();
+
+  return appointments
+    .filter(
+      appointment =>
+        appointment.date > today &&
+        pendingAppointment(appointment)
+    )
+    .sort(
+      (a, b) =>
+        (a.date + a.time).localeCompare(b.date + b.time)
+    );
 }
 
 // DASHBOARD
@@ -836,31 +1007,12 @@ function renderDashboard() {
   $("monthRevenue").textContent = money(month.revenue);
   $("monthCount").textContent = `${month.count} atendimento(s)`;
 
-  $("freeCount").textContent = openingSlots(
-    openingHours,
-    today
-  ).filter(
-    hour => !appointments.some(
-      appointment =>
-        appointment.date === today &&
-        appointment.time === hour &&
-        appointment.status !== "Cancelado"
-    )
-  ).length;
+  $("freeCount").textContent =
+    openingSlots(openingHours, today).length;
 
-  const upcoming = appointments
-    .filter(
-      appointment =>
-        appointment.date >= today &&
-        appointment.status !== "Cancelado"
-    )
-    .sort(
-      (a, b) =>
-        (a.date + a.time).localeCompare(b.date + b.time)
-    )
-    .slice(0, 7);
+  const list = todayAppointments();
 
-  $("nextAppointments").innerHTML = upcoming.length
+  $("nextAppointments").innerHTML = list.length
     ? `
       <div class="table-wrap">
         <table>
@@ -872,7 +1024,7 @@ function renderDashboard() {
             <th>Ações</th>
           </tr>
 
-          ${upcoming.map(appointment => `
+          ${list.map(appointment => `
             <tr>
               <td>${fmtDate(appointment.date)}</td>
               <td>${esc(appointment.time)}</td>
@@ -898,7 +1050,7 @@ function renderDashboard() {
         </table>
       </div>
     `
-    : '<div class="empty">Nenhum próximo atendimento.</div>';
+    : '<div class="empty">Nenhum atendimento pendente para hoje.</div>';
 
   const average = month.count
     ? month.revenue / month.count
@@ -938,6 +1090,340 @@ function showAppointmentDetails(id) {
     `Tipo: ${isReturn(appointment) ? "Retorno" : "Atendimento"}\n` +
     `Observação: ${appointment.note || "-"}`
   );
+}
+
+// SINO, AVISOS DO DIA E ATENDIMENTOS FUTUROS
+
+function mountDailyUI() {
+  if ($("notificationBell")) return;
+
+  const style = document.createElement("style");
+
+  style.textContent = `
+    .notification-bell {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #e2b4c2;
+      border-radius: 12px;
+      color: #563344;
+      background: #fff7fa;
+      font: inherit;
+      cursor: pointer;
+      margin: 12px 0;
+    }
+
+    .notification-count {
+      border-radius: 20px;
+      background: #ba577b;
+      color: white;
+      padding: 3px 9px;
+      font-weight: bold;
+    }
+
+    #futurePanel {
+      margin-top: 24px;
+    }
+
+    #futurePanel .table-wrap {
+      max-height: 500px;
+      overflow: auto;
+    }
+
+    #futurePanel h2 {
+      margin-top: 0;
+    }
+
+    #futureCount {
+      color: #8a6475;
+    }
+
+    .multi-slot {
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+      width: 100%;
+      color: inherit;
+    }
+
+    .multi-slot span,
+    .multi-slot small {
+      display: block;
+      margin-top: 5px;
+    }
+
+    #dailyDialog {
+      width: min(850px, calc(100vw - 32px));
+      max-height: 85vh;
+      overflow: auto;
+      padding: 22px;
+      box-sizing: border-box;
+      border: 1px solid #f1d7dc;
+      border-radius: 18px;
+      color: #302c38;
+      background: white;
+    }
+
+    #dailyDialog::backdrop {
+      background: rgba(35, 20, 30, .45);
+    }
+
+    #dailyDialog .table-wrap {
+      overflow: auto;
+    }
+
+    #dailyDialog table {
+      min-width: 720px;
+    }
+
+    #dailyToast[hidden] {
+      display: none !important;
+    }
+
+    #dailyToast {
+      position: fixed;
+      z-index: 9999;
+      right: 18px;
+      bottom: 18px;
+      width: min(370px, calc(100vw - 36px));
+      box-sizing: border-box;
+      padding: 18px;
+      background: white;
+      color: #42313a;
+      border: 1px solid #e8b8c8;
+      border-left: 5px solid #c26a89;
+      border-radius: 14px;
+      box-shadow: 0 8px 30px #0002;
+    }
+
+    #dailyToast p {
+      margin: 0 0 12px;
+    }
+
+    #liveUpdateMessage {
+      color: #9b4b64;
+      font-size: 13px;
+    }
+  `;
+
+  document.head.appendChild(style);
+
+  const bell = document.createElement("button");
+
+  bell.id = "notificationBell";
+  bell.type = "button";
+  bell.className = "notification-bell";
+
+  bell.innerHTML = `
+    <span>🔔 Atendimentos de hoje</span>
+    <span id="notificationCount" class="notification-count">0</span>
+  `;
+
+  document.querySelector(".nav")
+    .insertAdjacentElement("beforebegin", bell);
+
+  bell.onclick = openDailyNotifications;
+
+  const panel = document.createElement("div");
+
+  panel.id = "futurePanel";
+  panel.className = "panel";
+
+  panel.innerHTML = `
+    <h2>📅 Atendimentos futuros</h2>
+    <p id="futureCount"></p>
+    <div id="futureAppointmentsTable" class="table-wrap"></div>
+    <p id="liveUpdateMessage" role="status"></p>
+  `;
+
+  $("dashboard").appendChild(panel);
+
+  const heading = $("nextAppointments")
+    ?.closest(".panel")
+    ?.querySelector("h2");
+
+  if (heading) {
+    heading.textContent = "Atendimentos de hoje";
+  }
+
+  const freeCard = $("freeCount")?.closest(".card");
+
+  if (freeCard?.querySelector(".label")) {
+    freeCard.querySelector(".label").textContent =
+      "Horários para agendar hoje";
+  }
+
+  if (freeCard?.querySelector(".small")) {
+    freeCard.querySelector(".small").textContent =
+      "Permite vários clientes por horário";
+  }
+
+  const dialog = document.createElement("dialog");
+
+  dialog.id = "dailyDialog";
+  dialog.setAttribute("aria-labelledby", "dailyTitle");
+
+  dialog.innerHTML = `
+    <h2 id="dailyTitle">🔔 Atendimentos de hoje</h2>
+    <p id="dailySummary"></p>
+
+    <div id="dailyTable" class="table-wrap"></div>
+
+    <p>
+      Os avisos são atualizados enquanto o sistema estiver aberto.
+    </p>
+
+    <div class="return-actions">
+      <button
+        type="button"
+        id="dailyRefresh"
+        class="btn primary"
+      >
+        Atualizar
+      </button>
+
+      <button
+        type="button"
+        id="dailyClose"
+        class="btn secondary"
+      >
+        Fechar
+      </button>
+    </div>
+  `;
+
+  document.body.appendChild(dialog);
+
+  $("dailyClose").onclick = () => dialog.close();
+
+  $("dailyRefresh").onclick = async () => {
+    $("dailyRefresh").disabled = true;
+
+    try {
+      await refreshData();
+    } finally {
+      $("dailyRefresh").disabled = false;
+    }
+  };
+
+  const toast = document.createElement("div");
+
+  toast.id = "dailyToast";
+  toast.hidden = true;
+  toast.setAttribute("role", "status");
+  toast.setAttribute("aria-live", "polite");
+
+  toast.innerHTML = `
+    <p id="dailyToastText"></p>
+
+    <div class="return-actions">
+      <button
+        type="button"
+        id="toastView"
+        class="btn primary btn-sm"
+      >
+        Ver atendimentos
+      </button>
+
+      <button
+        type="button"
+        id="toastClose"
+        class="btn secondary btn-sm"
+      >
+        Fechar
+      </button>
+    </div>
+  `;
+
+  document.body.appendChild(toast);
+
+  $("toastView").onclick = openDailyNotifications;
+
+  $("toastClose").onclick = () => {
+    toast.hidden = true;
+    clearTimeout(toastTimer);
+  };
+}
+
+function renderDailyUI() {
+  if (
+    !$("notificationBell") ||
+    !currentUser ||
+    currentUser.role === "cliente"
+  ) {
+    return;
+  }
+
+  const today = localDate();
+  const list = todayAppointments();
+  const future = futureAppointments();
+
+  $("notificationCount").textContent = list.length;
+
+  $("notificationBell").setAttribute(
+    "aria-label",
+    `${list.length} atendimento(s) pendente(s) hoje`
+  );
+
+  $("dailySummary").textContent =
+    `${fmtDate(today)} · ${list.length} atendimento(s) pendente(s)`;
+
+  $("dailyTable").innerHTML = list.length
+    ? renderPeriodTable(list)
+    : '<div class="empty">Nenhum atendimento pendente para hoje.</div>';
+
+  $("futureCount").textContent =
+    `${future.length} agendamento(s) futuro(s), em ordem de data.`;
+
+  $("futureAppointmentsTable").innerHTML = future.length
+    ? renderPeriodTable(future)
+    : '<div class="empty">Nenhum agendamento futuro pendente.</div>';
+
+  const ids = new Set(
+    list.map(appointment => String(appointment.id))
+  );
+
+  const newDay = notificationDate !== today;
+  const added = [...ids].some(id => !notifiedIds.has(id));
+
+  if (list.length && (newDay || added)) {
+    $("dailyToastText").textContent =
+      `🔔 Você tem ${list.length} atendimento(s) para hoje, ` +
+      `${fmtDate(today)}.`;
+
+    $("dailyToast").hidden = false;
+
+    clearTimeout(toastTimer);
+
+    toastTimer = setTimeout(() => {
+      $("dailyToast").hidden = true;
+    }, 15000);
+  }
+
+  if (!list.length) {
+    $("dailyToast").hidden = true;
+  }
+
+  notificationDate = today;
+  notifiedIds = ids;
+}
+
+function openDailyNotifications() {
+  if (!$("dailyDialog")) return;
+
+  $("dailyToast").hidden = true;
+  clearTimeout(toastTimer);
+
+  if (!$("dailyDialog").open) {
+    $("dailyDialog").showModal();
+  }
+
+  if (!refreshBusy) {
+    refreshData({ silent: true });
+  }
 }
 
 // FILTROS POR PERÍODO
@@ -1077,12 +1563,10 @@ function clearAgendaFilter() {
 }
 
 function refreshVisibleFilters() {
-  const filters = [
+  for (const [prefix, apply] of [
     ["dash", applyDashboardFilter],
     ["agenda", applyAgendaFilter]
-  ];
-
-  for (const [prefix, apply] of filters) {
+  ]) {
     const start = $(prefix + "FilterStart")?.value;
     const end = $(prefix + "FilterEnd")?.value;
 
@@ -1102,7 +1586,7 @@ function setStatus(id, newStatus) {
 
   if (
     newStatus === "Cancelado" &&
-    !confirm("Cancelar este agendamento e liberar o horário?")
+    !confirm("Cancelar este agendamento?")
   ) {
     return;
   }
@@ -1115,7 +1599,7 @@ function setStatus(id, newStatus) {
       body: JSON.stringify({ status: newStatus })
     }
   )
-    .then(refreshData)
+    .then(() => refreshData())
     .catch(error => alert(error.message));
 }
 
@@ -1164,43 +1648,41 @@ function renderAgenda() {
   const dayHours = openingSlots(openingHours, selectedDate);
 
   $("slots").innerHTML = dayHours.map(hour => {
-    const appointment = list.find(
-      item =>
-        item.time === hour &&
-        item.status !== "Cancelado"
+    const group = list.filter(
+      appointment =>
+        appointment.time === hour &&
+        appointment.status !== "Cancelado"
     );
 
-    if (appointment) {
-      return `
-        <div class="slot busy">
-          <strong>${hour}</strong>
-          ${esc(appointment.name)}
-          <small>
-            ${esc(appointment.procedure)}
-            ${isReturn(appointment) ? " · 🔄 Retorno" : ""}
-            • ${money(appointment.price)}
-          </small>
-        </div>
-      `;
-    }
-
     return `
-      <div
-        class="slot free"
+      <button
+        type="button"
+        class="slot free multi-slot"
         onclick="openModal('${selectedDate}', '${hour}')"
       >
-        <strong>${hour}</strong>
-        Disponível
-        <small>Clique para agendar</small>
-      </div>
+        <strong>${esc(hour)}</strong>
+
+        <span>
+          ${
+            group.length
+              ? group.length + " agendamento(s)"
+              : "Disponível"
+          }
+        </span>
+
+        ${group.map(appointment => `
+          <small>
+            ${esc(appointment.name)}
+            ${isReturn(appointment) ? " · Retorno" : ""}
+          </small>
+        `).join("")}
+
+        <small>+ Agendar neste horário</small>
+      </button>
     `;
   }).join("") || `
     <div class="empty">
-      ${
-        openingHours
-          ? "Nenhum horário de atendimento disponível nesta data."
-          : "Carregando horários..."
-      }
+      Nenhum horário de atendimento disponível nesta data.
     </div>
   `;
 
@@ -1447,6 +1929,7 @@ function renderClients() {
                     >`
                   : ""
               }
+
               <b>${esc(client.name)}</b>
             </td>
 
@@ -1941,6 +2424,10 @@ function openClientReturn(id) {
 function showReturnSources(sources) {
   if (returnSaving) return;
 
+  if ($("dailyDialog")?.open) {
+    $("dailyDialog").close();
+  }
+
   $("returnForm").reset();
   $("returnFields").disabled = false;
 
@@ -2027,14 +2514,9 @@ async function loadReturnSlots() {
       return;
     }
 
-    const taken = new Set(
-      (data.taken || []).map(time => String(time).slice(0, 5))
-    );
-
+    // Outros clientes no mesmo horário não bloqueiam o retorno.
     const slots = (data.slots || []).filter(
-      time =>
-        !taken.has(time) &&
-        (date !== source.date || time > source.time)
+      time => date !== source.date || time > source.time
     );
 
     $("returnTime").innerHTML =
@@ -2050,7 +2532,7 @@ async function loadReturnSlots() {
 
     if (!slots.length) {
       $("returnMessage").textContent =
-        "Nenhum horário livre nesta data. Escolha outro dia.";
+        "Nenhum horário disponível nesta data. Escolha outro dia.";
     }
   } catch (error) {
     if (requestId !== returnSlotsRequestId) return;
@@ -2105,7 +2587,6 @@ async function saveReturn(event) {
     $("returnDialog").close();
 
     await refreshData();
-
     showSection("atendimentos");
 
     alert(
@@ -2286,7 +2767,8 @@ function updateReportPeriod(start, end) {
   const proceduresMap = {};
 
   result.list.forEach(appointment => {
-    const procedure = appointment.procedure || "Sem procedimento";
+    const procedure =
+      appointment.procedure || "Sem procedimento";
 
     proceduresMap[procedure] =
       (proceduresMap[procedure] || 0) + 1;
@@ -2482,7 +2964,7 @@ function clearPasswordForm() {
   $("passwordMessage").textContent = "";
 }
 
-// AGENDAMENTO DO CLIENTE
+// AGENDAMENTO PÚBLICO DO CLIENTE
 
 async function initClientPage() {
   try {
@@ -2527,36 +3009,33 @@ async function renderClientSlots() {
 
     if (requestId !== clientSlotsRequestId) return;
 
-    const taken = new Set(
-      (data.taken || []).map(time => String(time).slice(0, 5))
-    );
-
     selectedSlot = "";
 
     $("cbSlots").innerHTML = (data.slots || []).map(hour => {
-      if (taken.has(hour)) {
-        return `
-          <div class="slot busy">
-            <strong>${esc(hour)}</strong>
-            Ocupado
-          </div>
-        `;
-      }
+      const count = Number(data.bookingsByTime?.[hour]) || 0;
 
       return `
-        <div
-          class="slot free"
+        <button
+          type="button"
+          class="slot free multi-slot"
           data-time="${esc(hour)}"
           onclick="pickSlot(${idArgument(hour)})"
         >
           <strong>${esc(hour)}</strong>
-          Disponível
-        </div>
+          <span>Disponível</span>
+
+          <small>
+            ${
+              count
+                ? count + " agendamento(s) · aceita novas reservas"
+                : "Clique para escolher"
+            }
+          </small>
+        </button>
       `;
     }).join("") || `
       <div class="empty">
-        Nenhum horário de atendimento disponível nesta data.
-        Escolha outro dia.
+        Nenhum horário disponível nesta data. Escolha outro dia.
       </div>
     `;
   } catch (error) {
@@ -2618,6 +3097,16 @@ $("clientBookingForm").addEventListener("submit", async event => {
     return;
   }
 
+  if (publicBookingSaving) return;
+
+  publicBookingSaving = true;
+
+  const submit = event.currentTarget.querySelector(
+    'button[type="submit"], button:not([type])'
+  );
+
+  if (submit) submit.disabled = true;
+
   try {
     const form = new FormData();
 
@@ -2643,6 +3132,9 @@ $("clientBookingForm").addEventListener("submit", async event => {
   } catch (error) {
     alert(error.message);
     renderClientSlots();
+  } finally {
+    publicBookingSaving = false;
+    if (submit) submit.disabled = false;
   }
 });
 
@@ -2662,7 +3154,10 @@ function bindPasswordForm() {
 }
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", bindPasswordForm);
+  document.addEventListener(
+    "DOMContentLoaded",
+    bindPasswordForm
+  );
 } else {
   bindPasswordForm();
 }
