@@ -1,6 +1,5 @@
 let openingHours = null;
 let openingHoursDirty = false;
-
 let currentUser = null;
 let pendingRole = null;
 let procedures = [];
@@ -8,6 +7,10 @@ let clients = [];
 let appointments = [];
 let selectedSlot = "";
 let clientSlotsRequestId = 0;
+
+let returnSaving = false;
+let returnSlotsRequestId = 0;
+let returnSlotsReady = false;
 
 const $ = id => document.getElementById(id);
 
@@ -52,6 +55,15 @@ const esc = value =>
 const idArgument = value =>
   esc(JSON.stringify(String(value)));
 
+function monthEnd(date) {
+  const [year, month] = date.split("-").map(Number);
+
+  return (
+    `${year}-${String(month).padStart(2, "0")}-` +
+    new Date(year, month, 0).getDate()
+  );
+}
+
 async function api(url, options = {}) {
   const response = await fetch(url, {
     credentials: "include",
@@ -68,17 +80,14 @@ async function api(url, options = {}) {
 
   if (!response.ok) {
     throw new Error(
-      data?.error ||
-      "Não foi possível concluir a operação."
+      data?.error || "Não foi possível concluir a operação."
     );
   }
 
   return data;
 }
 
-/* =========================
-   HORÁRIOS DISPONÍVEIS
-========================= */
+// HORÁRIOS DISPONÍVEIS
 
 function openingSlots(settings, date) {
   if (!settings || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -94,12 +103,10 @@ function openingSlots(settings, date) {
     return [];
   }
 
-  // A lista personalizada é a mesma em todos os dias.
   if (Array.isArray(settings.slots)) {
     return [...settings.slots];
   }
 
-  // Compatibilidade com a configuração anterior.
   const day = settings.days[value.getUTCDay()];
 
   if (!day.open) return [];
@@ -145,115 +152,40 @@ function openingSlots(settings, date) {
 function mountOpeningHoursPanel() {
   let panel = $("openingHoursPanel");
 
-  if (!panel) {
-    const style = document.createElement("style");
+  if (!panel || !panel.dataset.bound) {
+    let button = $("editAvailableHours");
 
-    style.textContent = `
-      #editAvailableHours {
-        margin-bottom: 18px;
-      }
+    if (!button) {
+      button = document.createElement("button");
+      button.id = "editAvailableHours";
+      button.type = "button";
+      button.className = "btn primary";
 
-      #openingHoursPanel {
-        margin-bottom: 22px;
-      }
+      $("agenda").querySelector(".top")
+        .insertAdjacentElement("afterend", button);
+    }
 
-      #openingHoursPanel[hidden] {
-        display: none !important;
-      }
+    if (!panel) {
+      panel = document.createElement("div");
+      panel.id = "openingHoursPanel";
+      panel.className = "panel";
 
-      #openingHoursPanel p {
-        color: var(--muted);
-        margin: 14px 0;
-      }
-
-      #openingHoursDays {
-        display: grid;
-        grid-template-columns: repeat(
-          auto-fit,
-          minmax(220px, 1fr)
-        );
-        gap: 12px;
-      }
-
-      #openingHoursPanel .attendance-row {
-        display: flex;
-        align-items: end;
-        gap: 10px;
-        padding: 12px;
-        border: 1px solid var(--border, #f1d7dc);
-        border-radius: 10px;
-      }
-
-      #openingHoursPanel .attendance-row label {
-        display: grid;
-        gap: 6px;
-        flex: 1;
-        min-width: 0;
-      }
-
-      #openingHoursPanel input[type=time] {
-        width: 100%;
-        min-width: 0;
-        box-sizing: border-box;
-      }
-
-      #openingHoursPanel .opening-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
-        margin-top: 18px;
-      }
-
-      #openingHoursMessage {
-        min-height: 20px;
-        margin-top: 12px;
-      }
-    `;
-
-    document.head.appendChild(style);
-
-    const editButton = document.createElement("button");
-
-    editButton.id = "editAvailableHours";
-    editButton.type = "button";
-    editButton.className = "btn primary";
-
-    editButton.textContent =
-      "✏️ Alterar horários disponíveis";
-
-    editButton.setAttribute(
-      "aria-controls",
-      "openingHoursPanel"
-    );
-
-    editButton.setAttribute(
-      "aria-expanded",
-      "false"
-    );
-
-    panel = document.createElement("div");
-    panel.id = "openingHoursPanel";
-    panel.className = "panel";
-    panel.hidden = true;
+      button.insertAdjacentElement("afterend", panel);
+    }
 
     panel.innerHTML = `
       <p>
-        Clique em cada horário para mudar a hora e os minutos.
-        Adicione ou remova horários e clique em Salvar horários
-        para atualizar os quadrinhos da agenda.
+        Altere os horários disponíveis e clique em Salvar horários.
       </p>
 
       <form id="openingHoursForm">
-        <div id="openingHoursDays">
-          Carregando horários...
-        </div>
+        <div id="openingHoursDays"></div>
 
-        <div class="opening-actions">
+        <div class="return-actions">
           <button
             id="addAttendanceTime"
             type="button"
             class="btn secondary"
-            disabled
           >
             + Adicionar horário
           </button>
@@ -262,51 +194,38 @@ function mountOpeningHoursPanel() {
             id="saveOpeningHours"
             type="submit"
             class="btn primary"
-            disabled
           >
             Salvar horários
           </button>
         </div>
 
         <p>
-          A lista se repete todos os dias até você alterá-la novamente.
-          Os agendamentos já feitos serão mantidos.
-          Salvar uma lista vazia desativa os horários para novas reservas.
+          A lista vale para todos os dias.
+          Os agendamentos existentes serão mantidos.
         </p>
 
-        <div
-          id="openingHoursMessage"
-          role="status"
-          aria-live="polite"
-        ></div>
+        <div id="openingHoursMessage" role="status"></div>
       </form>
     `;
 
-    $("agenda")
-      .querySelector(".top")
-      .insertAdjacentElement("afterend", editButton);
+    panel.dataset.bound = "true";
 
-    editButton.insertAdjacentElement(
-      "afterend",
-      panel
-    );
-
-    editButton.addEventListener("click", () => {
+    button.onclick = () => {
       panel.hidden = !panel.hidden;
 
-      editButton.setAttribute(
+      button.setAttribute(
         "aria-expanded",
         String(!panel.hidden)
       );
 
-      editButton.textContent = panel.hidden
+      button.textContent = panel.hidden
         ? "✏️ Alterar horários disponíveis"
         : "Fechar edição dos horários";
 
       if (!panel.hidden) {
         renderOpeningHoursEditor();
       }
-    });
+    };
 
     $("openingHoursForm").addEventListener(
       "submit",
@@ -318,29 +237,22 @@ function mountOpeningHoursPanel() {
       markAttendanceHoursDirty
     );
 
-    $("addAttendanceTime").addEventListener("click", () => {
+    $("addAttendanceTime").onclick = () => {
       appendAttendanceTime("");
       markAttendanceHoursDirty();
 
-      $("openingHoursDays")
-        .lastElementChild
-        .querySelector("input")
-        .focus();
-    });
+      $("openingHoursDays").lastElementChild
+        .querySelector("input").focus();
+    };
   }
 
   $("editAvailableHours").hidden =
     currentUser?.role !== "admin";
 
-  panel.hidden = true;
-
-  $("editAvailableHours").setAttribute(
-    "aria-expanded",
-    "false"
-  );
-
   $("editAvailableHours").textContent =
     "✏️ Alterar horários disponíveis";
+
+  panel.hidden = true;
 }
 
 function markAttendanceHoursDirty() {
@@ -367,10 +279,7 @@ function appendAttendanceTime(time) {
       >
     </label>
 
-    <button
-      type="button"
-      class="btn danger btn-sm"
-    >
+    <button type="button" class="btn danger btn-sm">
       Remover
     </button>
   `;
@@ -395,10 +304,8 @@ function renderOpeningHoursEditor() {
 
   $("openingHoursDays").innerHTML = "";
 
-  openingSlots(
-    openingHours,
-    localDate()
-  ).forEach(appendAttendanceTime);
+  openingSlots(openingHours, localDate())
+    .forEach(appendAttendanceTime);
 
   $("saveOpeningHours").disabled = false;
   $("addAttendanceTime").disabled = false;
@@ -409,10 +316,7 @@ async function saveOpeningHours(event) {
 
   const button = $("saveOpeningHours");
 
-  if (
-    button.disabled ||
-    currentUser?.role !== "admin"
-  ) {
+  if (button.disabled || currentUser?.role !== "admin") {
     return;
   }
 
@@ -437,7 +341,7 @@ async function saveOpeningHours(event) {
   if (new Set(slots).size !== slots.length) {
     message.style.color = "var(--danger)";
     message.textContent =
-      "Existem horários repetidos. Remova a repetição antes de salvar.";
+      "Existem horários repetidos. Remova a repetição.";
     return;
   }
 
@@ -455,9 +359,7 @@ async function saveOpeningHours(event) {
   try {
     openingHours = await api("/api/opening-hours", {
       method: "PUT",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ slots })
     });
 
@@ -469,7 +371,7 @@ async function saveOpeningHours(event) {
 
     message.style.color = "var(--success)";
     message.textContent =
-      "Horários salvos! Essa lista será usada todos os dias até você alterá-la novamente.";
+      "Horários salvos! Essa lista será usada todos os dias.";
   } catch (error) {
     message.style.color = "var(--danger)";
     message.textContent = error.message;
@@ -482,9 +384,7 @@ async function saveOpeningHours(event) {
   }
 }
 
-/* =========================
-   LOGIN E ACESSO
-========================= */
+// LOGIN E ACESSO
 
 function selectRole(role) {
   if (role === "cliente") {
@@ -502,8 +402,7 @@ function selectRole(role) {
     (role === "admin"
       ? "Entrando como Administrador"
       : "Entrando como Funcionário") +
-    " — " +
-    roleEmail(role);
+    " — " + roleEmail(role);
 
   $("loginPassword").value = "";
   $("loginError").textContent = "";
@@ -528,9 +427,7 @@ $("loginForm").addEventListener("submit", async event => {
   try {
     const data = await api("/api/auth/login", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email: roleEmail(pendingRole),
         password: $("loginPassword").value,
@@ -550,6 +447,10 @@ async function logout() {
     await api("/api/auth/logout", {
       method: "POST"
     }).catch(() => {});
+  }
+
+  if ($("returnDialog")?.open) {
+    $("returnDialog").close();
   }
 
   currentUser = null;
@@ -578,9 +479,7 @@ function enterApp() {
   initAdminApp();
 }
 
-/* =========================
-   NAVEGAÇÃO
-========================= */
+// NAVEGAÇÃO
 
 function navItemsFor(role) {
   return [
@@ -592,6 +491,11 @@ function navItemsFor(role) {
     {
       id: "agenda",
       label: "📅 Agenda",
+      roles: ["admin", "funcionario"]
+    },
+    {
+      id: "atendimentos",
+      label: "🔄 Atendimentos",
       roles: ["admin", "funcionario"]
     },
     {
@@ -632,22 +536,17 @@ function renderNav() {
     `).join("");
 
   document.querySelectorAll(".nav button").forEach(button => {
-    button.onclick = () =>
-      showSection(button.dataset.section);
+    button.onclick = () => showSection(button.dataset.section);
   });
 
   const configButton = $("configNavBtn");
 
   if (configButton) {
-    const canConfigure = items.some(
+    configButton.style.display = items.some(
       item => item.id === "configuracoes"
-    );
+    ) ? "" : "none";
 
-    configButton.style.display =
-      canConfigure ? "" : "none";
-
-    configButton.onclick = () =>
-      showSection("configuracoes");
+    configButton.onclick = () => showSection("configuracoes");
   }
 
   $("userTag").textContent =
@@ -659,6 +558,8 @@ function renderNav() {
 }
 
 function showSection(id) {
+  if (!currentUser || currentUser.role === "cliente") return;
+
   const allowedSections =
     navItemsFor(currentUser.role).map(item => item.id);
 
@@ -679,23 +580,18 @@ function showSection(id) {
     );
   });
 
-  const configButton = $("configNavBtn");
-
-  if (configButton) {
-    configButton.classList.toggle(
-      "active",
-      id === "configuracoes"
-    );
-  }
+  $("configNavBtn")?.classList.toggle(
+    "active",
+    id === "configuracoes"
+  );
 
   renderAll();
 }
 
-/* =========================
-   INICIALIZAÇÃO DO PAINEL
-========================= */
+// INICIALIZAÇÃO DO PAINEL
 
 async function initAdminApp() {
+  mountReturnUI();
   mountOpeningHoursPanel();
   renderNav();
 
@@ -704,15 +600,12 @@ async function initAdminApp() {
   }
 
   $("date").value = localDate();
-
   fillTimes();
 
   const today = localDate();
 
-  $("reportStartDate").value =
-    today.slice(0, 7) + "-01";
-
-  $("reportEndDate").value = today;
+  $("reportStartDate").value = today.slice(0, 7) + "-01";
+  $("reportEndDate").value = monthEnd(today);
 
   await refreshData();
 }
@@ -751,11 +644,8 @@ function fillTimes() {
   const previous = select.value;
   const date = $("date").value || localDate();
 
-  const available = openingSlots(
-    openingHours,
-    date
-  ).filter(hour =>
-    !appointments.some(
+  const available = openingSlots(openingHours, date).filter(
+    hour => !appointments.some(
       item =>
         item.date === date &&
         item.time === hour &&
@@ -765,29 +655,25 @@ function fillTimes() {
 
   select.innerHTML =
     '<option value="">' +
-    (
-      available.length
-        ? "Selecione"
-        : "Nenhum horário disponível"
-    ) +
+    (available.length ? "Selecione" : "Nenhum horário disponível") +
     "</option>" +
     available.map(hour => `<option>${hour}</option>`).join("");
 
-  select.value = available.includes(previous)
-    ? previous
-    : "";
+  select.value = available.includes(previous) ? previous : "";
 }
 
 $("date").addEventListener("change", fillTimes);
 
 function openModal(date = localDate(), time = "") {
+  $("status").innerHTML =
+    "<option>Confirmado</option><option>Cancelado</option>";
+
   $("modal").classList.add("show");
   $("date").value = date;
 
   fillTimes();
 
   $("time").value = time;
-
   fillAllProcedureSelects();
 }
 
@@ -803,9 +689,7 @@ $("appointmentForm").addEventListener("submit", async event => {
   try {
     await api("/api/appointments", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: $("name").value.trim(),
         phone: $("phone").value.trim(),
@@ -839,8 +723,7 @@ $("procedure").addEventListener("change", event => {
 
 if ($("phone")) {
   $("phone").addEventListener("input", () => {
-    $("phone").value =
-      $("phone").value.replace(/\D/g, "");
+    $("phone").value = $("phone").value.replace(/\D/g, "");
   });
 }
 
@@ -851,8 +734,8 @@ function fillProcedureSelect(element, withPrice = false) {
     '<option value="">Selecione</option>' +
     procedures.map(procedure => `
       <option
-        value="${procedure.id}"
-        data-price="${procedure.price}"
+        value="${esc(procedure.id)}"
+        data-price="${esc(procedure.price)}"
       >
         ${esc(procedure.name)}
         ${withPrice ? ` — ${money(procedure.price)}` : ""}
@@ -869,6 +752,8 @@ function renderAll() {
   renderDashboard();
   renderAgenda();
   renderClients();
+  renderAttendances();
+  refreshVisibleFilters();
 
   if (currentUser?.role === "admin") {
     renderReports();
@@ -890,8 +775,7 @@ function periodTotals(start, end) {
 
   return {
     revenue: filtered.reduce(
-      (total, appointment) =>
-        total + Number(appointment.price),
+      (total, appointment) => total + Number(appointment.price),
       0
     ),
     count: filtered.length
@@ -915,13 +799,10 @@ function endWeek(dateValue) {
   );
 
   date.setDate(date.getDate() + 6);
-
   return date.toISOString().slice(0, 10);
 }
 
-/* =========================
-   DASHBOARD
-========================= */
+// DASHBOARD
 
 function renderDashboard() {
   const today = localDate();
@@ -931,23 +812,15 @@ function renderDashboard() {
     endWeek(today)
   );
 
-  const currentDate = new Date(today + "T12:00:00");
-
-  const lastDayOfMonth = new Date(
-    currentDate.getFullYear(),
-    currentDate.getMonth() + 1,
-    0
-  ).toISOString().slice(0, 10);
-
   const month = periodTotals(
     today.slice(0, 7) + "-01",
-    lastDayOfMonth
+    monthEnd(today)
   );
 
   const day = periodTotals(today, today);
 
   $("todayLabel").textContent =
-    currentDate.toLocaleDateString("pt-BR", {
+    new Date(today + "T12:00:00").toLocaleDateString("pt-BR", {
       weekday: "long",
       day: "2-digit",
       month: "long",
@@ -982,10 +855,8 @@ function renderDashboard() {
         appointment.status !== "Cancelado"
     )
     .sort(
-      (first, second) =>
-        (first.date + first.time).localeCompare(
-          second.date + second.time
-        )
+      (a, b) =>
+        (a.date + a.time).localeCompare(b.date + b.time)
     )
     .slice(0, 7);
 
@@ -1000,14 +871,17 @@ function renderDashboard() {
             <th>Valor</th>
             <th>Ações</th>
           </tr>
+
           ${upcoming.map(appointment => `
             <tr>
               <td>${fmtDate(appointment.date)}</td>
-              <td>${appointment.time}</td>
+              <td>${esc(appointment.time)}</td>
               <td>
-                <b>${esc(appointment.name)}</b>
-                <br>
-                <small>${esc(appointment.procedure)}</small>
+                <b>${esc(appointment.name)}</b><br>
+                <small>
+                  ${esc(appointment.procedure)}
+                  ${isReturn(appointment) ? " · 🔄 Retorno" : ""}
+                </small>
               </td>
               <td>${money(appointment.price)}</td>
               <td>
@@ -1024,28 +898,19 @@ function renderDashboard() {
         </table>
       </div>
     `
-    : `
-      <div class="empty">
-        Nenhum próximo atendimento.
-      </div>
-    `;
+    : '<div class="empty">Nenhum próximo atendimento.</div>';
 
-  const count = month.count;
-  const average = count ? month.revenue / count : 0;
+  const average = month.count
+    ? month.revenue / month.count
+    : 0;
 
   $("monthSummary").innerHTML = `
-    <p>
-      <b>${count}</b> atendimento(s) no mês
-    </p>
-    <p>
-      Ticket médio: <b>${money(average)}</b>
-    </p>
-    <p>
-      Faturamento: <b>${money(month.revenue)}</b>
-    </p>
+    <p><b>${month.count}</b> atendimento(s) no mês</p>
+    <p>Ticket médio: <b>${money(average)}</b></p>
+    <p>Faturamento: <b>${money(month.revenue)}</b></p>
   `;
 
-  const isAdmin = currentUser.role === "admin";
+  const isAdmin = currentUser?.role === "admin";
 
   $("monthCardWrap").style.display = isAdmin ? "" : "none";
   $("monthSummaryPanel").style.display = isAdmin ? "" : "none";
@@ -1070,13 +935,12 @@ function showAppointmentDetails(id) {
     `Procedimento: ${appointment.procedure}\n` +
     `Valor: ${money(appointment.price)}\n` +
     `Status: ${appointment.status}\n` +
+    `Tipo: ${isReturn(appointment) ? "Retorno" : "Atendimento"}\n` +
     `Observação: ${appointment.note || "-"}`
   );
 }
 
-/* =========================
-   FILTROS POR PERÍODO
-========================= */
+// FILTROS POR PERÍODO
 
 function periodListAndTotals(start, end) {
   const list = appointments
@@ -1087,35 +951,42 @@ function periodListAndTotals(start, end) {
         appointment.date <= end
     )
     .sort(
-      (first, second) =>
-        (first.date + first.time).localeCompare(
-          second.date + second.time
-        )
+      (a, b) =>
+        (a.date + a.time).localeCompare(b.date + b.time)
     );
 
   const revenue = list.reduce(
-    (total, appointment) =>
-      total + Number(appointment.price),
+    (total, appointment) => total + Number(appointment.price),
     0
   );
-
-  const count = list.length;
 
   return {
     list,
     revenue,
-    count,
-    ticket: count ? revenue / count : 0
+    count: list.length,
+    ticket: list.length ? revenue / list.length : 0
   };
+}
+
+function statusMarkup(appointment) {
+  const label =
+    appointment.status +
+    (
+      isReturn(appointment) && appointment.status !== "Retorno"
+        ? " · Retorno"
+        : ""
+    );
+
+  return `
+    <span class="badge ${badge(appointment.status)}">
+      ${esc(label)}
+    </span>
+  `;
 }
 
 function renderPeriodTable(list) {
   if (!list.length) {
-    return `
-      <div class="empty">
-        Nenhum atendimento no período selecionado.
-      </div>
-    `;
+    return '<div class="empty">Nenhum atendimento encontrado.</div>';
   }
 
   return `
@@ -1127,19 +998,18 @@ function renderPeriodTable(list) {
         <th>Procedimento</th>
         <th>Valor</th>
         <th>Status</th>
+        <th>Ações</th>
       </tr>
+
       ${list.map(appointment => `
         <tr>
           <td>${fmtDate(appointment.date)}</td>
-          <td>${appointment.time}</td>
+          <td>${esc(appointment.time)}</td>
           <td>${esc(appointment.name)}</td>
           <td>${esc(appointment.procedure)}</td>
           <td>${money(appointment.price)}</td>
-          <td>
-            <span class="badge ${badge(appointment.status)}">
-              ${esc(appointment.status)}
-            </span>
-          </td>
+          <td>${statusMarkup(appointment)}</td>
+          <td>${appointmentActions(appointment)}</td>
         </tr>
       `).join("")}
     </table>
@@ -1156,9 +1026,7 @@ function applyDashboardFilter() {
   }
 
   if (start > end) {
-    alert(
-      "A data inicial precisa ser anterior ou igual à data final."
-    );
+    alert("A data inicial precisa ser anterior ou igual à data final.");
     return;
   }
 
@@ -1188,9 +1056,7 @@ function applyAgendaFilter() {
   }
 
   if (start > end) {
-    alert(
-      "A data inicial precisa ser anterior ou igual à data final."
-    );
+    alert("A data inicial precisa ser anterior ou igual à data final.");
     return;
   }
 
@@ -1210,41 +1076,92 @@ function clearAgendaFilter() {
   $("agendaFilterTable").innerHTML = "";
 }
 
-/* =========================
-   AGENDA
-========================= */
+function refreshVisibleFilters() {
+  const filters = [
+    ["dash", applyDashboardFilter],
+    ["agenda", applyAgendaFilter]
+  ];
+
+  for (const [prefix, apply] of filters) {
+    const start = $(prefix + "FilterStart")?.value;
+    const end = $(prefix + "FilterEnd")?.value;
+
+    if (start && end && start <= end) {
+      apply();
+    }
+  }
+}
+
+// AGENDA
 
 function setStatus(id, newStatus) {
-  api(`/api/appointments/${id}/status`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      status: newStatus
-    })
-  })
+  if (newStatus === "Retorno") {
+    openReturnModal(id);
+    return;
+  }
+
+  if (
+    newStatus === "Cancelado" &&
+    !confirm("Cancelar este agendamento e liberar o horário?")
+  ) {
+    return;
+  }
+
+  api(
+    `/api/appointments/${encodeURIComponent(id)}/status`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: newStatus })
+    }
+  )
     .then(refreshData)
     .catch(error => alert(error.message));
 }
 
+function appointmentActions(appointment) {
+  const id = idArgument(appointment.id);
+
+  return `
+    <div class="return-actions">
+      <button
+        type="button"
+        class="btn success btn-sm"
+        onclick="setStatus(${id}, 'Confirmado')"
+        ${appointment.status === "Confirmado" ? "disabled" : ""}
+      >
+        Confirmado
+      </button>
+
+      <button
+        type="button"
+        class="btn danger btn-sm"
+        onclick="setStatus(${id}, 'Cancelado')"
+        ${appointment.status === "Cancelado" ? "disabled" : ""}
+      >
+        Cancelado
+      </button>
+
+      <button
+        type="button"
+        class="btn primary btn-sm"
+        onclick="openReturnModal(${id})"
+        ${appointment.status === "Cancelado" ? "disabled" : ""}
+      >
+        🔄 Retorno
+      </button>
+    </div>
+  `;
+}
+
 function renderAgenda() {
-  const selectedDate =
-    $("agendaDate")?.value || localDate();
+  const selectedDate = $("agendaDate")?.value || localDate();
 
   const list = appointments
-    .filter(
-      appointment => appointment.date === selectedDate
-    )
-    .sort(
-      (first, second) =>
-        first.time.localeCompare(second.time)
-    );
+    .filter(appointment => appointment.date === selectedDate)
+    .sort((a, b) => a.time.localeCompare(b.time));
 
-  const dayHours = openingSlots(
-    openingHours,
-    selectedDate
-  );
+  const dayHours = openingSlots(openingHours, selectedDate);
 
   $("slots").innerHTML = dayHours.map(hour => {
     const appointment = list.find(
@@ -1260,6 +1177,7 @@ function renderAgenda() {
           ${esc(appointment.name)}
           <small>
             ${esc(appointment.procedure)}
+            ${isReturn(appointment) ? " · 🔄 Retorno" : ""}
             • ${money(appointment.price)}
           </small>
         </div>
@@ -1299,6 +1217,7 @@ function renderAgenda() {
           <th>Obs.</th>
           <th>Ações</th>
         </tr>
+
         ${list.map(appointment => {
           const client = clients.find(
             item => item.phone === appointment.phone
@@ -1306,61 +1225,33 @@ function renderAgenda() {
 
           return `
             <tr>
-              <td><b>${appointment.time}</b></td>
+              <td><b>${esc(appointment.time)}</b></td>
               <td>
-                ${esc(appointment.name)}
-                <br>
+                ${esc(appointment.name)}<br>
                 <small>${esc(appointment.phone)}</small>
               </td>
               <td>
-                ${client?.photo
-                  ? `
-                    <img
-                      src="${esc(client.photo)}"
-                      class="client-photo"
-                    >
-                  `
-                  : `
-                    <small style="color:var(--muted)">
-                      Sem foto
-                    </small>
-                  `
+                ${
+                  client?.photo
+                    ? `<img
+                        src="${esc(client.photo)}"
+                        class="client-photo"
+                        alt="Foto do cliente"
+                      >`
+                    : "<small>Sem foto</small>"
                 }
               </td>
               <td>${esc(appointment.procedure)}</td>
               <td>${money(appointment.price)}</td>
-              <td>
-                <span class="badge ${badge(appointment.status)}">
-                  ${esc(appointment.status)}
-                </span>
-              </td>
+              <td>${statusMarkup(appointment)}</td>
               <td>${esc(appointment.note || "-")}</td>
-              <td>
-                <button
-                  type="button"
-                  class="btn success btn-sm"
-                  onclick="setStatus(${idArgument(appointment.id)}, 'Atendido')"
-                >
-                  Concluído
-                </button>
-                <button
-                  type="button"
-                  class="btn danger btn-sm"
-                  onclick="setStatus(${idArgument(appointment.id)}, 'Cancelado')"
-                >
-                  Não Concluído
-                </button>
-              </td>
+              <td>${appointmentActions(appointment)}</td>
             </tr>
           `;
         }).join("")}
       </table>
     `
-    : `
-      <div class="empty">
-        Nenhum agendamento para esta data.
-      </div>
-    `;
+    : '<div class="empty">Nenhum agendamento para esta data.</div>';
 }
 
 function badge(status) {
@@ -1368,7 +1259,8 @@ function badge(status) {
     Agendado: "b-agendado",
     Confirmado: "b-confirmado",
     Atendido: "b-atendido",
-    Cancelado: "b-cancelado"
+    Cancelado: "b-cancelado",
+    Retorno: "b-retorno"
   }[status] || "b-agendado";
 }
 
@@ -1379,9 +1271,7 @@ function changeDay(numberOfDays) {
 
   date.setDate(date.getDate() + numberOfDays);
 
-  $("agendaDate").value =
-    date.toISOString().slice(0, 10);
-
+  $("agendaDate").value = date.toISOString().slice(0, 10);
   renderAgenda();
 }
 
@@ -1393,9 +1283,7 @@ function goToday() {
   renderAgenda();
 }
 
-/* =========================
-   CLIENTES
-========================= */
+// CLIENTES
 
 function openClientModal() {
   $("clientModal").classList.add("show");
@@ -1463,7 +1351,7 @@ async function downloadClientPhoto(id) {
     item => String(item.id) === String(id)
   );
 
-  if (!client || !client.photo) {
+  if (!client?.photo) {
     alert("Este cliente não tem foto cadastrada.");
     return;
   }
@@ -1477,8 +1365,7 @@ async function downloadClientPhoto(id) {
     if (!response.ok) {
       throw new Error(
         "Não foi possível obter a foto (HTTP " +
-        response.status +
-        "). O arquivo pode estar indisponível ou o endereço estar incorreto."
+        response.status + ")."
       );
     }
 
@@ -1486,9 +1373,7 @@ async function downloadClientPhoto(id) {
     const mime = blob.type.split(";")[0].toLowerCase();
 
     if (!mime.startsWith("image/") || !blob.size) {
-      throw new Error(
-        "O servidor não devolveu uma imagem válida."
-      );
+      throw new Error("O servidor não devolveu uma imagem válida.");
     }
 
     const extensions = {
@@ -1520,14 +1405,9 @@ async function downloadClientPhoto(id) {
     link.click();
     link.remove();
 
-    setTimeout(() => {
-      URL.revokeObjectURL(url);
-    }, 60000);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (error) {
-    alert(
-      error.message ||
-      "Não foi possível baixar a foto."
-    );
+    alert(error.message || "Não foi possível baixar a foto.");
   }
 }
 
@@ -1554,62 +1434,79 @@ function renderClients() {
           <th>Observação</th>
           <th>Ações</th>
         </tr>
+
         ${filteredClients.map(client => `
           <tr>
             <td>
-              ${client.photo
-                ? `
-                  <img
-                    class="client-photo"
-                    src="${esc(client.photo)}"
-                  >
-                `
-                : ""
+              ${
+                client.photo
+                  ? `<img
+                      class="client-photo"
+                      src="${esc(client.photo)}"
+                      alt="Foto do cliente"
+                    >`
+                  : ""
               }
               <b>${esc(client.name)}</b>
             </td>
+
             <td>${esc(client.phone)}</td>
             <td>${client.count}</td>
             <td>${money(client.total)}</td>
-            <td>
-              ${client.last ? fmtDate(client.last) : "—"}
-            </td>
+            <td>${client.last ? fmtDate(client.last) : "—"}</td>
             <td>${esc(client.note || "-")}</td>
+
             <td>
-              ${client.photo
-                ? `
-                  <button
-                    type="button"
-                    class="btn secondary btn-sm"
-                    onclick="downloadClientPhoto(${idArgument(client.id)})"
-                  >
-                    ⬇️ Baixar foto
-                  </button>
-                `
-                : ""
-              }
-              <button
-                type="button"
-                class="btn danger btn-sm"
-                onclick="removeClient(${idArgument(client.id)})"
-              >
-                Remover
-              </button>
+              <div class="return-actions">
+                ${
+                  client.photo
+                    ? `
+                      <button
+                        type="button"
+                        class="btn secondary btn-sm"
+                        onclick="downloadClientPhoto(${idArgument(client.id)})"
+                      >
+                        ⬇️ Baixar foto
+                      </button>
+                    `
+                    : ""
+                }
+
+                <button
+                  type="button"
+                  class="btn primary btn-sm"
+                  onclick="openClientReturn(${idArgument(client.id)})"
+                >
+                  🔄 Retorno
+                </button>
+
+                ${
+                  currentUser?.role === "admin"
+                    ? `
+                      <button
+                        type="button"
+                        class="btn danger btn-sm"
+                        onclick="removeClient(${idArgument(client.id)})"
+                      >
+                        Remover
+                      </button>
+                    `
+                    : ""
+                }
+              </div>
             </td>
           </tr>
         `).join("")}
       </table>
     `
-    : `
-      <div class="empty">
-        Nenhum cliente encontrado.
-      </div>
-    `;
+    : '<div class="empty">Nenhum cliente encontrado.</div>';
 }
 
 async function removeClient(id) {
   if (!confirm(
-    "Remover este cliente da lista? Os agendamentos e valores dos relatórios serão mantidos."
+    "Excluir definitivamente este cliente e todos os seus " +
+    "agendamentos, retornos e atendimentos? Os valores também " +
+    "serão removidos dos relatórios."
   )) {
     return;
   }
@@ -1625,9 +1522,615 @@ async function removeClient(id) {
   }
 }
 
-/* =========================
-   PROCEDIMENTOS
-========================= */
+// ATENDIMENTOS E RETORNOS
+
+function isReturn(appointment) {
+  return Boolean(
+    appointment.isReturn ||
+    appointment.originalAppointmentId ||
+    appointment.status === "Retorno"
+  );
+}
+
+function mountReturnUI() {
+  if ($("returnDialog")) return;
+
+  const style = document.createElement("style");
+
+  style.textContent = `
+    .b-retorno {
+      background: #eee3ff;
+      color: #66359a;
+    }
+
+    .return-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 8px 0;
+    }
+
+    .return-actions button {
+      white-space: nowrap;
+    }
+
+    #openingHoursPanel[hidden],
+    #editAvailableHours[hidden] {
+      display: none !important;
+    }
+
+    #openingHoursDays {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 10px;
+    }
+
+    .attendance-row {
+      display: flex;
+      gap: 10px;
+      align-items: end;
+      padding: 10px;
+      border: 1px solid #f1d7dc;
+      border-radius: 10px;
+    }
+
+    .attendance-row label {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .attendance-row input {
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    #returnDialog {
+      width: min(600px, calc(100vw - 32px));
+      max-height: 90vh;
+      overflow: auto;
+      box-sizing: border-box;
+      padding: 24px;
+      border: 1px solid #f1d7dc;
+      border-radius: 18px;
+      color: #302c38;
+      background: white;
+    }
+
+    #returnDialog::backdrop {
+      background: rgba(35, 20, 30, .45);
+    }
+
+    #returnDialog h2 {
+      margin: 0 0 8px;
+    }
+
+    #returnClientLabel {
+      color: #7a6570;
+    }
+
+    #returnFields {
+      border: 0;
+      padding: 0;
+      margin: 0;
+      min-width: 0;
+    }
+
+    .return-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .return-grid label {
+      display: grid;
+      gap: 6px;
+      font-size: 14px;
+    }
+
+    .return-full {
+      grid-column: 1 / -1;
+    }
+
+    .return-grid input,
+    .return-grid select,
+    .return-grid textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px;
+      border: 1px solid #e8cbd3;
+      border-radius: 9px;
+      font: inherit;
+      background: white;
+      color: inherit;
+    }
+
+    #returnMessage {
+      min-height: 22px;
+      color: #a12442;
+      margin: 12px 0;
+    }
+
+    #returnDialog button:disabled {
+      opacity: .55;
+      cursor: wait;
+    }
+
+    #atendimentos table {
+      min-width: 780px;
+    }
+
+    #atendimentos .filters {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    #atendimentos .filters input,
+    #atendimentos .filters select {
+      padding: 12px;
+      border: 1px solid #efd1d9;
+      border-radius: 9px;
+    }
+
+    @media (max-width: 600px) {
+      .return-grid {
+        grid-template-columns: 1fr;
+      }
+
+      #returnDialog {
+        padding: 18px;
+      }
+
+      .return-actions .btn {
+        padding: 9px;
+      }
+    }
+  `;
+
+  document.head.appendChild(style);
+
+  const section = document.createElement("section");
+
+  section.id = "atendimentos";
+  section.className = "section";
+
+  section.innerHTML = `
+    <div class="top">
+      <div>
+        <h1>Atendimentos e retornos</h1>
+        <p>
+          Confirme, cancele ou escolha a data do próximo atendimento.
+        </p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="filters">
+        <input
+          id="attendanceSearch"
+          type="search"
+          placeholder="Buscar cliente ou procedimento"
+          aria-label="Buscar atendimento"
+        >
+
+        <select
+          id="attendanceFilter"
+          aria-label="Filtrar atendimentos"
+        >
+          <option value="">Todos</option>
+          <option value="Retorno">Retornos</option>
+          <option value="Confirmado">Confirmados</option>
+          <option value="Cancelado">Cancelados</option>
+        </select>
+      </div>
+
+      <div id="attendanceTable" class="table-wrap"></div>
+    </div>
+  `;
+
+  $("agenda").insertAdjacentElement("afterend", section);
+
+  $("attendanceSearch").addEventListener(
+    "input",
+    renderAttendances
+  );
+
+  $("attendanceFilter").addEventListener(
+    "change",
+    renderAttendances
+  );
+
+  const dialog = document.createElement("dialog");
+
+  dialog.id = "returnDialog";
+  dialog.setAttribute("aria-labelledby", "returnTitle");
+
+  dialog.innerHTML = `
+    <h2 id="returnTitle">🔄 Agendar retorno</h2>
+    <p id="returnClientLabel"></p>
+
+    <form id="returnForm">
+      <fieldset id="returnFields">
+        <div class="return-grid">
+          <label class="return-full">
+            Atendimento original
+            <select id="returnOriginal" required></select>
+          </label>
+
+          <label class="return-full">
+            Procedimento
+            <select id="returnProcedure" required></select>
+          </label>
+
+          <label>
+            Data do retorno
+            <input id="returnDate" type="date" required>
+          </label>
+
+          <label>
+            Horário
+            <select id="returnTime" required>
+              <option value="">Escolha a data</option>
+            </select>
+          </label>
+
+          <label>
+            Valor (R$)
+            <input
+              id="returnPrice"
+              type="number"
+              min="0"
+              max="99999999.99"
+              step="0.01"
+              required
+            >
+          </label>
+
+          <label class="return-full">
+            Observação
+            <textarea
+              id="returnNote"
+              rows="3"
+              placeholder="Orientações para o retorno"
+            ></textarea>
+          </label>
+        </div>
+      </fieldset>
+
+      <div
+        id="returnMessage"
+        role="status"
+        aria-live="polite"
+      ></div>
+
+      <div class="return-actions">
+        <button
+          id="returnClose"
+          type="button"
+          class="btn secondary"
+        >
+          Fechar
+        </button>
+
+        <button
+          id="returnSave"
+          type="submit"
+          class="btn primary"
+        >
+          Agendar retorno
+        </button>
+      </div>
+    </form>
+  `;
+
+  document.body.appendChild(dialog);
+
+  $("returnClose").onclick = closeReturnModal;
+
+  dialog.addEventListener("cancel", event => {
+    if (returnSaving) event.preventDefault();
+  });
+
+  dialog.addEventListener("close", () => {
+    returnSlotsRequestId++;
+    returnSlotsReady = false;
+  });
+
+  $("returnOriginal").addEventListener(
+    "change",
+    selectReturnSource
+  );
+
+  $("returnDate").addEventListener(
+    "change",
+    loadReturnSlots
+  );
+
+  $("returnProcedure").addEventListener("change", () => {
+    const procedure = procedures.find(
+      item => String(item.id) === $("returnProcedure").value
+    );
+
+    $("returnPrice").value = procedure ? procedure.price : "";
+  });
+
+  $("returnForm").addEventListener("submit", saveReturn);
+}
+
+function renderAttendances() {
+  if (!$("attendanceTable")) return;
+
+  const search =
+    $("attendanceSearch").value.trim().toLowerCase();
+
+  const status = $("attendanceFilter").value;
+
+  const list = appointments.filter(appointment => {
+    const matchesSearch =
+      `${appointment.name} ${appointment.phone} ${appointment.procedure}`
+        .toLowerCase()
+        .includes(search);
+
+    const matchesStatus =
+      !status ||
+      (
+        status === "Retorno"
+          ? isReturn(appointment)
+          : appointment.status === status
+      );
+
+    return matchesSearch && matchesStatus;
+  }).sort(
+    (a, b) =>
+      (b.date + b.time).localeCompare(a.date + a.time)
+  );
+
+  $("attendanceTable").innerHTML = renderPeriodTable(list);
+}
+
+function openReturnModal(id) {
+  mountReturnUI();
+
+  const source = appointments.find(
+    appointment => String(appointment.id) === String(id)
+  );
+
+  if (!source || source.status === "Cancelado") {
+    alert("Escolha um atendimento que não esteja cancelado.");
+    return;
+  }
+
+  showReturnSources([source]);
+}
+
+function openClientReturn(id) {
+  mountReturnUI();
+
+  const client = clients.find(
+    item => String(item.id) === String(id)
+  );
+
+  if (!client) return;
+
+  const sources = appointments.filter(
+    appointment =>
+      appointment.status !== "Cancelado" &&
+      (
+        appointment.clientId
+          ? String(appointment.clientId) === String(client.id)
+          : appointment.phone === client.phone
+      )
+  ).sort(
+    (a, b) =>
+      (b.date + b.time).localeCompare(a.date + a.time)
+  );
+
+  if (!sources.length) {
+    alert(
+      "Este cliente ainda não possui um atendimento para " +
+      "vincular o retorno. Cadastre o primeiro agendamento na Agenda."
+    );
+
+    return;
+  }
+
+  showReturnSources(sources);
+}
+
+function showReturnSources(sources) {
+  if (returnSaving) return;
+
+  $("returnForm").reset();
+  $("returnFields").disabled = false;
+
+  $("returnOriginal").innerHTML = sources.map(appointment => `
+    <option value="${esc(appointment.id)}">
+      ${fmtDate(appointment.date)}
+      às ${esc(appointment.time)}
+      — ${esc(appointment.procedure)}
+    </option>
+  `).join("");
+
+  fillProcedureSelect($("returnProcedure"), true);
+
+  if (!$("returnDialog").open) {
+    $("returnDialog").showModal();
+  }
+
+  selectReturnSource();
+}
+
+function selectReturnSource() {
+  const source = appointments.find(
+    appointment =>
+      String(appointment.id) === $("returnOriginal").value
+  );
+
+  if (!source) return;
+
+  $("returnClientLabel").textContent =
+    `${source.name} · ${source.phone}`;
+
+  $("returnProcedure").value = String(source.procedureId);
+
+  const procedure = procedures.find(
+    item => String(item.id) === $("returnProcedure").value
+  );
+
+  $("returnPrice").value = procedure ? procedure.price : "";
+
+  const minimum =
+    source.date > localDate() ? source.date : localDate();
+
+  $("returnDate").min = minimum;
+  $("returnDate").value = minimum;
+  $("returnNote").value = "";
+
+  loadReturnSlots();
+}
+
+async function loadReturnSlots() {
+  const requestId = ++returnSlotsRequestId;
+
+  returnSlotsReady = false;
+
+  $("returnSave").disabled = true;
+  $("returnTime").innerHTML =
+    '<option value="">Carregando horários...</option>';
+
+  $("returnMessage").textContent = "";
+
+  const date = $("returnDate").value;
+
+  const source = appointments.find(
+    appointment =>
+      String(appointment.id) === $("returnOriginal").value
+  );
+
+  if (!source || !date || date < $("returnDate").min) {
+    $("returnTime").innerHTML =
+      '<option value="">Escolha uma data válida</option>';
+
+    return;
+  }
+
+  try {
+    const data = await api(
+      "/api/public/slots?date=" + encodeURIComponent(date)
+    );
+
+    if (
+      requestId !== returnSlotsRequestId ||
+      !$("returnDialog").open
+    ) {
+      return;
+    }
+
+    const taken = new Set(
+      (data.taken || []).map(time => String(time).slice(0, 5))
+    );
+
+    const slots = (data.slots || []).filter(
+      time =>
+        !taken.has(time) &&
+        (date !== source.date || time > source.time)
+    );
+
+    $("returnTime").innerHTML =
+      '<option value="">Selecione</option>' +
+      slots.map(time => `
+        <option value="${esc(time)}">${esc(time)}</option>
+      `).join("");
+
+    returnSlotsReady = slots.length > 0;
+
+    $("returnSave").disabled =
+      !returnSlotsReady || returnSaving;
+
+    if (!slots.length) {
+      $("returnMessage").textContent =
+        "Nenhum horário livre nesta data. Escolha outro dia.";
+    }
+  } catch (error) {
+    if (requestId !== returnSlotsRequestId) return;
+
+    $("returnTime").innerHTML =
+      '<option value="">Horários indisponíveis</option>';
+
+    $("returnMessage").textContent =
+      error.message + " Selecione a data novamente.";
+  }
+}
+
+async function saveReturn(event) {
+  event.preventDefault();
+
+  if (
+    returnSaving ||
+    !returnSlotsReady ||
+    !$("returnForm").reportValidity()
+  ) {
+    return;
+  }
+
+  const id = $("returnOriginal").value;
+
+  const payload = {
+    date: $("returnDate").value,
+    time: $("returnTime").value,
+    procedureId: $("returnProcedure").value,
+    price: $("returnPrice").value,
+    note: $("returnNote").value.trim()
+  };
+
+  returnSaving = true;
+
+  $("returnFields").disabled = true;
+  $("returnSave").disabled = true;
+  $("returnClose").disabled = true;
+  $("returnSave").textContent = "Salvando...";
+  $("returnMessage").textContent = "";
+
+  try {
+    await api(
+      "/api/appointments/" + encodeURIComponent(id) + "/return",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      }
+    );
+
+    $("returnDialog").close();
+
+    await refreshData();
+
+    showSection("atendimentos");
+
+    alert(
+      `Retorno agendado para ${fmtDate(payload.date)} ` +
+      `às ${payload.time}.`
+    );
+  } catch (error) {
+    $("returnMessage").textContent = error.message;
+  } finally {
+    returnSaving = false;
+
+    $("returnFields").disabled = false;
+    $("returnSave").disabled = !returnSlotsReady;
+    $("returnClose").disabled = false;
+    $("returnSave").textContent = "Agendar retorno";
+  }
+}
+
+function closeReturnModal() {
+  if (!returnSaving) {
+    $("returnDialog").close();
+  }
+}
+
+// PROCEDIMENTOS
 
 function readProcedurePrice(value) {
   const text = String(value ?? "").trim().replace(",", ".");
@@ -1660,13 +2163,8 @@ async function addProcedure() {
   try {
     await api("/api/procedures", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        name,
-        price
-      })
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, price })
     });
 
     $("procName").value = "";
@@ -1704,12 +2202,8 @@ async function editProcedurePrice(id) {
       "/api/procedures/" + encodeURIComponent(id) + "/price",
       {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          price
-        })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ price })
       }
     );
 
@@ -1733,9 +2227,7 @@ async function removeProcedure(id) {
   try {
     await api(
       "/api/procedures/" + encodeURIComponent(id),
-      {
-        method: "DELETE"
-      }
+      { method: "DELETE" }
     );
 
     await refreshData();
@@ -1753,6 +2245,7 @@ function renderProcedures() {
           <th>Valor padrão</th>
           <th>Ações</th>
         </tr>
+
         ${procedures.map(procedure => `
           <tr>
             <td>${esc(procedure.name)}</td>
@@ -1778,16 +2271,10 @@ function renderProcedures() {
         `).join("")}
       </table>
     `
-    : `
-      <div class="empty">
-        Nenhum procedimento cadastrado.
-      </div>
-    `;
+    : '<div class="empty">Nenhum procedimento cadastrado.</div>';
 }
 
-/* =========================
-   RELATÓRIOS
-========================= */
+// RELATÓRIOS
 
 function updateReportPeriod(start, end) {
   const result = periodListAndTotals(start, end);
@@ -1799,15 +2286,14 @@ function updateReportPeriod(start, end) {
   const proceduresMap = {};
 
   result.list.forEach(appointment => {
-    const procedure =
-      appointment.procedure || "Sem procedimento";
+    const procedure = appointment.procedure || "Sem procedimento";
 
     proceduresMap[procedure] =
       (proceduresMap[procedure] || 0) + 1;
   });
 
   const rows = Object.entries(proceduresMap).sort(
-    (first, second) => second[1] - first[1]
+    (a, b) => b[1] - a[1]
   );
 
   const maximum = rows[0]?.[1] || 1;
@@ -1829,6 +2315,7 @@ function updateReportPeriod(start, end) {
             <span>${esc(procedure)}</span>
             <b>${count}</b>
           </div>
+
           <div class="bar">
             <i style="width:${count / maximum * 100}%"></i>
           </div>
@@ -1852,9 +2339,7 @@ function applyReportFilter() {
   }
 
   if (start > end) {
-    alert(
-      "A data inicial precisa ser anterior ou igual à data final."
-    );
+    alert("A data inicial precisa ser anterior ou igual à data final.");
     return;
   }
 
@@ -1864,10 +2349,8 @@ function applyReportFilter() {
 function clearReportFilter() {
   const today = localDate();
 
-  $("reportStartDate").value =
-    today.slice(0, 7) + "-01";
-
-  $("reportEndDate").value = today;
+  $("reportStartDate").value = today.slice(0, 7) + "-01";
+  $("reportEndDate").value = monthEnd(today);
 
   updateReportPeriod(
     $("reportStartDate").value,
@@ -1876,9 +2359,7 @@ function clearReportFilter() {
 }
 
 async function renderReports() {
-  if (currentUser?.role !== "admin") {
-    return;
-  }
+  if (currentUser?.role !== "admin") return;
 
   try {
     const summary = await api("/api/reports/summary");
@@ -1900,41 +2381,25 @@ async function renderReports() {
 
 async function downloadReportPDF(type) {
   try {
-    const start =
-      $("reportStartDate").value || localDate();
-
-    const end =
-      $("reportEndDate").value || localDate();
+    const start = $("reportStartDate").value || localDate();
+    const end = $("reportEndDate").value || localDate();
 
     const params = { type };
 
-    if (type === "day") {
-      params.date = end;
-    }
-
-    if (type === "month") {
-      params.month = start.slice(0, 7);
-    }
-
-    if (type === "year") {
-      params.year = start.slice(0, 4);
-    }
+    if (type === "day") params.date = end;
+    if (type === "month") params.month = start.slice(0, 7);
+    if (type === "year") params.year = start.slice(0, 4);
 
     const response = await fetch(
       "/api/reports/pdf?" + new URLSearchParams(params),
-      {
-        credentials: "include"
-      }
+      { credentials: "include" }
     );
 
     if (!response.ok) {
-      const data = await response
-        .json()
-        .catch(() => ({}));
+      const data = await response.json().catch(() => ({}));
 
       throw new Error(
-        data.error ||
-        "Não foi possível gerar o PDF."
+        data.error || "Não foi possível gerar o PDF."
       );
     }
 
@@ -1945,16 +2410,17 @@ async function downloadReportPDF(type) {
     link.href = url;
     link.download = `Relatorio_${type}.pdf`;
 
+    document.body.appendChild(link);
     link.click();
-    URL.revokeObjectURL(url);
+    link.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (error) {
     alert(error.message);
   }
 }
 
-/* =========================
-   ALTERAÇÃO DE SENHA
-========================= */
+// ALTERAÇÃO DE SENHA
 
 async function changePassword(event) {
   event.preventDefault();
@@ -1967,11 +2433,7 @@ async function changePassword(event) {
   message.textContent = "";
   message.style.color = "var(--danger)";
 
-  if (
-    !currentPassword ||
-    !newPassword ||
-    !confirmPassword
-  ) {
+  if (!currentPassword || !newPassword || !confirmPassword) {
     message.textContent = "Preencha todos os campos.";
     return;
   }
@@ -1997,9 +2459,7 @@ async function changePassword(event) {
   try {
     const result = await api("/api/auth/password", {
       method: "PUT",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         currentPassword,
         newPassword,
@@ -2022,9 +2482,7 @@ function clearPasswordForm() {
   $("passwordMessage").textContent = "";
 }
 
-/* =========================
-   AGENDAMENTO DO CLIENTE
-========================= */
+// AGENDAMENTO DO CLIENTE
 
 async function initClientPage() {
   try {
@@ -2057,11 +2515,8 @@ async function renderClientSlots() {
 
   selectedSlot = "";
 
-  $("cbSlots").innerHTML = `
-    <div class="empty">
-      Carregando horários...
-    </div>
-  `;
+  $("cbSlots").innerHTML =
+    '<div class="empty">Carregando horários...</div>';
 
   const requestId = ++clientSlotsRequestId;
 
@@ -2073,9 +2528,7 @@ async function renderClientSlots() {
     if (requestId !== clientSlotsRequestId) return;
 
     const taken = new Set(
-      (data.taken || []).map(
-        time => String(time).slice(0, 5)
-      )
+      (data.taken || []).map(time => String(time).slice(0, 5))
     );
 
     selectedSlot = "";
@@ -2084,7 +2537,7 @@ async function renderClientSlots() {
       if (taken.has(hour)) {
         return `
           <div class="slot busy">
-            <strong>${hour}</strong>
+            <strong>${esc(hour)}</strong>
             Ocupado
           </div>
         `;
@@ -2093,10 +2546,10 @@ async function renderClientSlots() {
       return `
         <div
           class="slot free"
-          data-time="${hour}"
-          onclick="pickSlot('${hour}')"
+          data-time="${esc(hour)}"
+          onclick="pickSlot(${idArgument(hour)})"
         >
-          <strong>${hour}</strong>
+          <strong>${esc(hour)}</strong>
           Disponível
         </div>
       `;
@@ -2124,12 +2577,11 @@ function pickSlot(hour) {
   selectedSlot = hour;
 
   document.querySelectorAll("#cbSlots .slot").forEach(element => {
-    element.classList.remove("selected");
+    element.classList.toggle(
+      "selected",
+      element.dataset.time === hour
+    );
   });
-
-  document.querySelector(
-    `#cbSlots .slot[data-time="${hour}"]`
-  )?.classList.add("selected");
 }
 
 $("cbPhoto").addEventListener("change", () => {
@@ -2147,7 +2599,6 @@ $("cbPhoto").addEventListener("change", () => {
   reader.readAsDataURL(file);
 });
 
-// WhatsApp: somente números, com no máximo 11 dígitos.
 $("cbPhone").type = "tel";
 $("cbPhone").inputMode = "numeric";
 $("cbPhone").maxLength = 11;
@@ -2199,20 +2650,22 @@ function newClientBooking() {
   initClientPage();
 }
 
-/* =========================
-   INICIALIZAÇÃO
-========================= */
+// INICIALIZAÇÃO
 
-document.addEventListener("DOMContentLoaded", () => {
-  const passwordForm = $("passwordForm");
+function bindPasswordForm() {
+  const form = $("passwordForm");
 
-  if (passwordForm) {
-    passwordForm.addEventListener(
-      "submit",
-      changePassword
-    );
+  if (form && !form.dataset.bound) {
+    form.dataset.bound = "true";
+    form.addEventListener("submit", changePassword);
   }
-});
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", bindPasswordForm);
+} else {
+  bindPasswordForm();
+}
 
 async function boot() {
   try {

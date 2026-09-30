@@ -14,10 +14,15 @@ import { fileURLToPath } from 'url';
 dotenv.config();
 
 const { Pool } = pg;
+
+// Mantém datas do PostgreSQL no formato YYYY-MM-DD.
+pg.types.setTypeParser(1082, value => value);
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, '../../');
 const frontend = path.join(root, 'frontend');
+
 const PORT = Number(process.env.PORT || 3000);
 
 const JWT_SECRET =
@@ -131,6 +136,11 @@ function publicClient(client) {
 function publicAppointment(appointment) {
   return {
     id: appointment.id,
+    clientId: appointment.cliente_id,
+    originalAppointmentId: appointment.agendamento_origem_id || null,
+    isReturn:
+      Boolean(appointment.agendamento_origem_id) ||
+      appointment.status === 'Retorno',
     name: appointment.nome,
     phone: appointment.telefone,
     date: appointment.data,
@@ -219,6 +229,7 @@ function openingSlots(settings, date) {
     ) {
       const hourText = String(Math.floor(minute / 60)).padStart(2, '0');
       const minuteText = String(minute % 60).padStart(2, '0');
+
       slots.push(`${hourText}:${minuteText}`);
     }
   }
@@ -289,6 +300,7 @@ function validateOpeningHours(value) {
 
     const breakStart = day.breakStart ?? '';
     const breakEnd = day.breakEnd ?? '';
+
     const pauseStart = openingMinutes(breakStart);
     const pauseEnd = openingMinutes(breakEnd);
 
@@ -426,7 +438,10 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 
   fileFilter: (_req, file, callback) => {
-    if (/^image\/(jpeg|png|webp|gif)$/.test(file.mimetype)) {
+    if (
+      ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+        .includes(file.mimetype)
+    ) {
       callback(null, true);
       return;
     }
@@ -435,7 +450,7 @@ const upload = multer({
   }
 });
 
-// STATUS
+// STATUS DO SERVIDOR
 
 app.get('/api/status', (_req, res) => {
   res.json({
@@ -742,7 +757,8 @@ app.patch(
   })
 );
 
-// Remover um procedimento preserva os agendamentos já realizados.
+// A remoção do procedimento preserva o histórico.
+
 app.delete(
   '/api/procedures/:id',
   auth,
@@ -927,6 +943,7 @@ app.delete(
       );
 
       await client.query('COMMIT');
+
       res.json({ ok: true });
     } catch (error) {
       await client.query('ROLLBACK');
@@ -984,6 +1001,7 @@ app.get(
   asyncHandler(async (req, res) => {
     const date = String(req.query.date || '');
     const params = [];
+
     let where = '';
 
     if (date) {
@@ -1056,6 +1074,7 @@ app.delete(
       );
 
       await client.query('COMMIT');
+
       res.json({ ok: true });
     } catch (error) {
       await client.query('ROLLBACK');
@@ -1065,6 +1084,8 @@ app.delete(
     }
   })
 );
+
+// NOVO AGENDAMENTO
 
 app.post(
   '/api/appointments',
@@ -1091,6 +1112,7 @@ app.post(
 
     try {
       await client.query('BEGIN');
+
       await assertOpeningSlot(client, date, time);
 
       const customer = await upsertClient(client, {
@@ -1247,6 +1269,7 @@ app.post(
 
     try {
       await client.query('BEGIN');
+
       await assertOpeningSlot(client, date, time);
 
       const customer = await upsertClient(client, {
@@ -1305,7 +1328,201 @@ app.post(
   })
 );
 
+// RETORNO: NOVO AGENDAMENTO PARA O MESMO CLIENTE
+
+app.post(
+  '/api/appointments/:id/return',
+  auth,
+  asyncHandler(async (req, res) => {
+    const originalId = String(req.params.id || '');
+    const body = req.body || {};
+
+    const date = String(body.date || '').trim();
+    const time = String(body.time || '').trim();
+
+    if (
+      !/^[1-9]\d{0,18}$/.test(originalId) ||
+      BigInt(originalId) > 9223372036854775807n
+    ) {
+      return res.status(400).json({
+        error: 'Atendimento original inválido.'
+      });
+    }
+
+    if (
+      openingWeekday(date) === null ||
+      openingMinutes(time) === null
+    ) {
+      return res.status(400).json({
+        error: 'Escolha uma data e um horário válidos.'
+      });
+    }
+
+    const client = await pool.connect();
+
+    const fail = (message, status = 400) => {
+      const error = new Error(message);
+      error.status = status;
+      throw error;
+    };
+
+    try {
+      await client.query('BEGIN');
+
+      // Bloqueia o registro durante a criação do retorno.
+      const sourceResult = await client.query(
+        `
+        SELECT a.*, a.data::text AS original_date
+        FROM agendamentos a
+        WHERE a.id = $1
+        FOR UPDATE
+        `,
+        [originalId]
+      );
+
+      if (!sourceResult.rowCount) {
+        fail('Atendimento original não encontrado.', 404);
+      }
+
+      const source = sourceResult.rows[0];
+
+      if (source.status === 'Cancelado') {
+        fail('Escolha um atendimento que não esteja cancelado.');
+      }
+
+      if (
+        date < source.original_date ||
+        (
+          date === source.original_date &&
+          time <= String(source.hora).slice(0, 5)
+        )
+      ) {
+        fail('O retorno deve acontecer depois do atendimento original.');
+      }
+
+      // Impede retornos duplicados para o mesmo atendimento.
+      const existing = await client.query(
+        `
+        SELECT id
+        FROM agendamentos
+        WHERE agendamento_origem_id = $1
+          AND status NOT IN ('Cancelado', 'Atendido')
+        LIMIT 1
+        `,
+        [originalId]
+      );
+
+      if (existing.rowCount) {
+        fail(
+          'Já existe um retorno agendado. Cancele o retorno anterior antes de marcar outro.',
+          409
+        );
+      }
+
+      const procedureId = String(
+        body.procedureId || source.procedimento_id
+      );
+
+      if (
+        !/^[1-9]\d{0,18}$/.test(procedureId) ||
+        BigInt(procedureId) > 9223372036854775807n
+      ) {
+        fail('Procedimento inválido.');
+      }
+
+      const proceduresResult = await client.query(
+        `
+        SELECT id, preco
+        FROM procedimentos
+        WHERE id = $1 AND ativo = TRUE
+        `,
+        [procedureId]
+      );
+
+      if (!proceduresResult.rowCount) {
+        fail('Selecione um procedimento ativo.');
+      }
+
+      const procedure = proceduresResult.rows[0];
+
+      // Se o valor não for informado, usa o preço do procedimento.
+      const price = procedurePrice(
+        body.price === undefined ||
+        body.price === null ||
+        body.price === ''
+          ? procedure.preco
+          : body.price
+      );
+
+      if (price === null) {
+        fail('Informe um valor válido para o retorno.');
+      }
+
+      await assertOpeningSlot(client, date, time);
+
+      // Cria o retorno sem alterar a data do atendimento original.
+      const inserted = await client.query(
+        `
+        INSERT INTO agendamentos (
+          cliente_id,
+          procedimento_id,
+          data,
+          hora,
+          valor,
+          status,
+          observacao,
+          criado_por,
+          agendamento_origem_id
+        )
+        VALUES ($1, $2, $3, $4, $5, 'Retorno', $6, $7, $8)
+        RETURNING id
+        `,
+        [
+          source.cliente_id,
+          procedure.id,
+          date,
+          time,
+          price,
+          String(body.note || '').trim(),
+          req.user.id,
+          source.id
+        ]
+      );
+
+      const complete = await client.query(
+        `
+        SELECT a.*, c.nome, c.telefone, p.nome AS procedimento
+        FROM agendamentos a
+        JOIN clientes c ON c.id = a.cliente_id
+        JOIN procedimentos p ON p.id = a.procedimento_id
+        WHERE a.id = $1
+        `,
+        [inserted.rows[0].id]
+      );
+
+      await client.query('COMMIT');
+
+      res.status(201).json(
+        publicAppointment(complete.rows[0])
+      );
+    } catch (error) {
+      await client.query('ROLLBACK');
+
+      if (error.code === '23505') {
+        return res.status(409).json({
+          error: 'Este horário já está ocupado. Escolha outro.'
+        });
+      }
+
+      throw error;
+    } finally {
+      client.release();
+    }
+  })
+);
+
 // ALTERAÇÃO DE STATUS
+// Para agendar um retorno com data, utilize a rota /return acima.
 
 app.patch(
   '/api/appointments/:id/status',
@@ -1321,7 +1538,9 @@ app.patch(
     ];
 
     if (!validStatuses.includes(status)) {
-      return res.status(400).json({ error: 'Status inválido.' });
+      return res.status(400).json({
+        error: 'Status inválido.'
+      });
     }
 
     const client = await pool.connect();
@@ -1376,6 +1595,7 @@ app.patch(
       }
 
       await client.query('COMMIT');
+
       res.json({ ok: true });
     } catch (error) {
       await client.query('ROLLBACK');
@@ -1395,6 +1615,7 @@ async function reportData(type, date, month, year) {
 
   if (type === 'month') {
     const selectedMonth = month || new Date().toISOString().slice(0, 7);
+
     const [selectedYear, selectedMonthNumber] =
       selectedMonth.split('-').map(Number);
 
@@ -1413,6 +1634,7 @@ async function reportData(type, date, month, year) {
 
     start = `${selectedYear}-01-01`;
     end = `${selectedYear + 1}-01-01`;
+
     label = `Anual — ${selectedYear}`;
   } else {
     const selectedDate = date || new Date().toISOString().slice(0, 10);
@@ -1420,9 +1642,11 @@ async function reportData(type, date, month, year) {
     start = selectedDate;
 
     const nextDay = new Date(`${selectedDate}T00:00:00Z`);
+
     nextDay.setUTCDate(nextDay.getUTCDate() + 1);
 
     end = nextDay.toISOString().slice(0, 10);
+
     label = `Diário — ${selectedDate}`;
   }
 
@@ -1453,16 +1677,30 @@ async function reportData(type, date, month, year) {
     valor: Number(row.valor)
   }));
 
-  const validData = data.filter(row => row.status !== 'Cancelado');
-  const revenue = validData.reduce((total, row) => total + row.valor, 0);
-  const attended = data.filter(row => row.status === 'Atendido').length;
-  const canceled = data.filter(row => row.status === 'Cancelado').length;
+  const validData = data.filter(
+    row => row.status !== 'Cancelado'
+  );
+
+  const revenue = validData.reduce(
+    (total, row) => total + row.valor,
+    0
+  );
+
+  const attended = data.filter(
+    row => row.status === 'Atendido'
+  ).length;
+
+  const canceled = data.filter(
+    row => row.status === 'Cancelado'
+  ).length;
 
   const pending = data.filter(
     row => !['Atendido', 'Cancelado'].includes(row.status)
   ).length;
 
-  const ticket = validData.length ? revenue / validData.length : 0;
+  const ticket = validData.length
+    ? revenue / validData.length
+    : 0;
 
   return {
     data,
@@ -1534,16 +1772,25 @@ app.get(
     const safeName = report.label.replace(/[^a-z0-9_-]+/gi, '_');
 
     res.setHeader('Content-Type', 'application/pdf');
+
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="Relatorio_${safeName}.pdf"`
     );
 
-    const doc = new PDFDocument({ size: 'A4', margin: 40 });
+    const doc = new PDFDocument({
+      size: 'A4',
+      margin: 40
+    });
 
     doc.pipe(res);
+
     doc.fontSize(20).text('AgendaPro');
-    doc.fontSize(10).text('Relatório de atendimentos e faturamento');
+
+    doc.fontSize(10).text(
+      'Relatório de atendimentos e faturamento'
+    );
+
     doc.moveDown();
     doc.fontSize(13).text(report.label);
     doc.moveDown();
@@ -1556,6 +1803,7 @@ app.get(
     doc.text(`Atendidos: ${report.attended}`);
     doc.text(`Pendentes/Agendados: ${report.pending}`);
     doc.text(`Cancelados: ${report.canceled}`);
+
     doc.text(
       `Ticket médio: R$ ${report.ticket.toFixed(2).replace('.', ',')}`
     );
@@ -1589,9 +1837,13 @@ app.get(
     for (let index = 0; index < report.data.length; index++) {
       const appointment = report.data[index];
 
-      if (doc.y > 700) doc.addPage();
+      if (doc.y > 700) {
+        doc.addPage();
+      }
 
-      doc.fontSize(10).text(`${index + 1}. ${appointment.cliente}`);
+      doc.fontSize(10).text(
+        `${index + 1}. ${appointment.cliente}`
+      );
 
       doc.fontSize(8.5).text(
         `Data: ${new Date(
@@ -1601,8 +1853,13 @@ app.get(
         ).slice(0, 5)}`
       );
 
-      doc.text(`Telefone/WhatsApp: ${appointment.telefone || '-'}`);
-      doc.text(`Procedimento: ${appointment.procedimento}`);
+      doc.text(
+        `Telefone/WhatsApp: ${appointment.telefone || '-'}`
+      );
+
+      doc.text(
+        `Procedimento: ${appointment.procedimento}`
+      );
 
       doc.text(
         `Valor: R$ ${appointment.valor.toFixed(2).replace('.', ',')}  ` +
@@ -1660,10 +1917,13 @@ async function ensureSchema() {
   const schemaPath = path.join(__dirname, '../sql/schema.sql');
 
   if (!fs.existsSync(schemaPath)) {
-    throw new Error(`Arquivo schema.sql não encontrado em: ${schemaPath}`);
+    throw new Error(
+      `Arquivo schema.sql não encontrado em: ${schemaPath}`
+    );
   }
 
   const schema = fs.readFileSync(schemaPath, 'utf8');
+
   await pool.query(schema);
 
   await pool.query(`
@@ -1694,7 +1954,10 @@ async function startServer() {
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 AgendaPro rodando na porta ${PORT}`);
-      console.log(`🌐 Ambiente: ${process.env.NODE_ENV || 'development'}`);
+
+      console.log(
+        `🌐 Ambiente: ${process.env.NODE_ENV || 'development'}`
+      );
     });
   } catch (error) {
     console.error('ERRO AO INICIAR O AGENDAPRO');
