@@ -7,11 +7,9 @@ let clients = [];
 let appointments = [];
 let selectedSlot = "";
 let clientSlotsRequestId = 0;
-
 let returnSaving = false;
 let returnSlotsRequestId = 0;
 let returnSlotsReady = false;
-
 let liveTimer = null;
 let refreshBusy = false;
 let refreshSequence = 0;
@@ -19,39 +17,30 @@ let lastDataDate = "";
 let notificationDate = "";
 let notifiedIds = new Set();
 let toastTimer = null;
-
 let appointmentSaving = false;
 let publicBookingSaving = false;
 let bookingClientId = null;
-
 const $ = id => document.getElementById(id);
-
 const money = value =>
   new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL"
   }).format(Number(value) || 0);
-
 const localDate = () => {
   const date = new Date();
-
   return new Date(
     date.getTime() - date.getTimezoneOffset() * 60000
   ).toISOString().slice(0, 10);
 };
-
 const fmtDate = value => {
   if (!value) return "—";
-
   const date = new Date(
     String(value).slice(0, 10) + "T12:00:00"
   );
-
   return Number.isNaN(date.getTime())
     ? "—"
     : date.toLocaleDateString("pt-BR");
 };
-
 const esc = value =>
   String(value ?? "").replace(/[&<>"']/g, character => ({
     "&": "&amp;",
@@ -60,83 +49,63 @@ const esc = value =>
     '"': "&quot;",
     "'": "&#039;"
   })[character]);
-
 const idArgument = value =>
   esc(JSON.stringify(String(value)));
-
 function monthEnd(date) {
   const [year, month] = date.split("-").map(Number);
-
   return `${year}-${String(month).padStart(2, "0")}-` +
     new Date(year, month, 0).getDate();
 }
-
 async function api(url, options = {}) {
   const response = await fetch(url, {
     credentials: "include",
     ...options
   });
-
   let data = null;
-
   try {
     data = await response.json();
   } catch {
     data = null;
   }
-
   if (!response.ok) {
     throw new Error(
       data?.error || "Não foi possível concluir a operação."
     );
   }
-
   return data;
 }
-
 // =====================================================
 // HORÁRIOS DE ATENDIMENTO
 // =====================================================
-
 function openingSlots(settings, date) {
   if (!settings || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return [];
   }
-
   const value = new Date(date + "T12:00:00Z");
-
   if (
     Number.isNaN(value.getTime()) ||
     value.toISOString().slice(0, 10) !== date
   ) {
     return [];
   }
-
   if (Array.isArray(settings.slots)) {
     return [...settings.slots];
   }
-
   const day = settings.days[value.getUTCDay()];
-
   if (!day.open) return [];
-
   const minutes = time => {
     const [hours, mins] = time.split(":").map(Number);
     return hours * 60 + mins;
   };
-
   const start = minutes(day.start);
   const end = minutes(day.end);
-
   const ranges = day.breakStart
     ? [
         [start, minutes(day.breakStart)],
         [minutes(day.breakEnd), end]
       ]
     : [[start, end]];
-
   const slots = [];
-
   for (const [from, until] of ranges) {
     for (
       let minute = from;
@@ -146,49 +115,38 @@ function openingSlots(settings, date) {
       const hour = String(
         Math.floor(minute / 60)
       ).padStart(2, "0");
-
       const mins = String(
         minute % 60
       ).padStart(2, "0");
-
       slots.push(`${hour}:${mins}`);
     }
   }
-
   return slots;
 }
-
 function mountOpeningHoursPanel() {
   let panel = $("openingHoursPanel");
-
   if (!panel || !panel.dataset.bound) {
     let button = $("editAvailableHours");
-
     if (!button) {
       button = document.createElement("button");
       button.id = "editAvailableHours";
       button.type = "button";
       button.className = "btn primary";
-
       $("agenda").querySelector(".top")
         .insertAdjacentElement("afterend", button);
     }
-
     if (!panel) {
       panel = document.createElement("div");
       panel.id = "openingHoursPanel";
       panel.className = "panel";
       button.insertAdjacentElement("afterend", panel);
     }
-
     panel.innerHTML = `
       <p>
         Altere os horários disponíveis e clique em Salvar horários.
       </p>
-
       <form id="openingHoursForm">
         <div id="openingHoursDays"></div>
-
         <div class="return-actions">
           <button
             id="addAttendanceTime"
@@ -197,7 +155,6 @@ function mountOpeningHoursPanel() {
           >
             + Adicionar horário
           </button>
-
           <button
             id="saveOpeningHours"
             type="submit"
@@ -206,79 +163,60 @@ function mountOpeningHoursPanel() {
             Salvar horários
           </button>
         </div>
-
         <p>
           A lista vale para todos os dias.
           Os agendamentos existentes serão mantidos.
         </p>
-
         <div id="openingHoursMessage" role="status"></div>
       </form>
     `;
-
     panel.dataset.bound = "true";
-
     button.onclick = () => {
       panel.hidden = !panel.hidden;
-
       button.setAttribute(
         "aria-expanded",
         String(!panel.hidden)
       );
-
       button.textContent = panel.hidden
         ? "✏️ Alterar horários disponíveis"
         : "Fechar edição dos horários";
-
       if (!panel.hidden) {
         renderOpeningHoursEditor();
       }
     };
-
     $("openingHoursForm").addEventListener(
       "submit",
       saveOpeningHours
     );
-
     $("openingHoursForm").addEventListener(
       "input",
       markAttendanceHoursDirty
     );
-
     $("addAttendanceTime").onclick = () => {
       appendAttendanceTime("");
       markAttendanceHoursDirty();
-
       $("openingHoursDays")
         .lastElementChild
         .querySelector("input")
         .focus();
     };
   }
-
   $("editAvailableHours").hidden =
     currentUser?.role !== "admin";
-
   $("editAvailableHours").textContent =
     "✏️ Alterar horários disponíveis";
-
   panel.hidden = true;
 }
-
 function markAttendanceHoursDirty() {
   openingHoursDirty = true;
-
   $("openingHoursMessage").style.color =
     "var(--muted)";
-
   $("openingHoursMessage").textContent =
     "Alterações ainda não salvas.";
 }
-
 function appendAttendanceTime(time) {
   const row = document.createElement("div");
   row.className = "attendance-row";
-
   row.innerHTML = `
     <label>
       Horário disponível
@@ -289,7 +227,6 @@ function appendAttendanceTime(time) {
         value="${esc(time)}"
       >
     </label>
-
     <button
       type="button"
       class="btn danger btn-sm"
@@ -297,7 +234,6 @@ function appendAttendanceTime(time) {
       Remover
     </button>
   `;
-
   row.querySelector("button").addEventListener(
     "click",
     () => {
@@ -305,10 +241,8 @@ function appendAttendanceTime(time) {
       markAttendanceHoursDirty();
     }
   );
-
   $("openingHoursDays").appendChild(row);
 }
-
 function renderOpeningHoursEditor() {
   if (
     !$("openingHoursPanel") ||
@@ -318,35 +252,26 @@ function renderOpeningHoursEditor() {
   ) {
     return;
   }
-
   $("openingHoursDays").innerHTML = "";
-
   openingSlots(openingHours, localDate())
     .forEach(appendAttendanceTime);
-
   $("saveOpeningHours").disabled = false;
   $("addAttendanceTime").disabled = false;
 }
-
 async function saveOpeningHours(event) {
   event.preventDefault();
-
   const button = $("saveOpeningHours");
-
   if (
     button.disabled ||
     currentUser?.role !== "admin"
   ) {
     return;
   }
-
   const message = $("openingHoursMessage");
-
   const slots = Array.from(
     $("openingHoursDays").querySelectorAll("input"),
     input => input.value
   );
-
   if (
     slots.some(
       time => !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)
@@ -357,27 +282,22 @@ async function saveOpeningHours(event) {
       "Preencha todos os horários antes de salvar.";
     return;
   }
-
   if (new Set(slots).size !== slots.length) {
     message.style.color = "var(--danger)";
     message.textContent =
       "Existem horários repetidos. Remova a repetição.";
     return;
   }
-
   const controls = Array.from(
     $("openingHoursForm").querySelectorAll(
       "input, button"
     )
   );
-
   controls.forEach(control => {
     control.disabled = true;
   });
-
   button.textContent = "Salvando...";
   message.textContent = "";
-
   try {
     openingHours = await api("/api/opening-hours", {
       method: "PUT",
@@ -386,13 +306,10 @@ async function saveOpeningHours(event) {
       },
       body: JSON.stringify({ slots })
     });
-
     openingHoursDirty = false;
-
     renderOpeningHoursEditor();
     fillTimes();
     renderAll();
-
     message.style.color = "var(--success)";
     message.textContent =
       "Horários salvos! Essa lista será usada todos os dias.";
@@ -403,27 +320,21 @@ async function saveOpeningHours(event) {
     controls.forEach(control => {
       control.disabled = false;
     });
-
     button.textContent = "Salvar horários";
   }
 }
-
 // =====================================================
 // LOGIN E ACESSO
 // =====================================================
-
 function selectRole(role) {
   if (role === "cliente") {
     currentUser = { role: "cliente" };
     enterApp();
     return;
   }
-
   pendingRole = role;
-
   $("roleSelect").style.display = "none";
   $("loginForm").style.display = "block";
-
   $("loginRoleLabel").textContent =
     (
       role === "admin"
@@ -432,30 +343,24 @@ function selectRole(role) {
     ) +
     " — " +
     roleEmail(role);
-
   $("loginPassword").value = "";
   $("loginError").textContent = "";
   $("loginPassword").focus();
 }
-
 function backToRoles() {
   pendingRole = null;
-
   $("loginForm").style.display = "none";
   $("roleSelect").style.display = "block";
 }
-
 function roleEmail(role) {
   return role === "admin"
     ? "admin@agendapro.local"
     : "funcionario@agendapro.local";
 }
-
 $("loginForm").addEventListener(
   "submit",
   async event => {
     event.preventDefault();
-
     try {
       const data = await api("/api/auth/login", {
         method: "POST",
@@ -468,7 +373,6 @@ $("loginForm").addEventListener(
           role: pendingRole
         })
       });
-
       currentUser = data.user;
       enterApp();
     } catch (error) {
@@ -476,71 +380,53 @@ $("loginForm").addEventListener(
     }
   }
 );
-
 async function logout() {
   clearInterval(liveTimer);
-
   liveTimer = null;
   refreshSequence++;
   refreshBusy = false;
   notificationDate = "";
   notifiedIds = new Set();
-
   clearTimeout(toastTimer);
-
   if ($("dailyDialog")?.open) {
     $("dailyDialog").close();
   }
-
   if ($("returnDialog")?.open) {
     $("returnDialog").close();
   }
-
   if ($("dailyToast")) {
     $("dailyToast").hidden = true;
   }
-
   if (currentUser?.role !== "cliente") {
     await api("/api/auth/logout", {
       method: "POST"
     }).catch(() => {});
   }
-
   currentUser = null;
   appointments = [];
   clients = [];
   openingHoursDirty = false;
-
   closeModal();
-
   $("app").style.display = "none";
   $("clientPage").style.display = "none";
   $("authScreen").style.display = "flex";
-
   backToRoles();
 }
-
 function enterApp() {
   $("authScreen").style.display = "none";
-
   if (currentUser.role === "cliente") {
     $("app").style.display = "none";
     $("clientPage").style.display = "block";
-
     initClientPage();
     return;
   }
-
   $("clientPage").style.display = "none";
   $("app").style.display = "flex";
-
   initAdminApp();
 }
-
 // =====================================================
 // NAVEGAÇÃO
 // =====================================================
-
 function navItemsFor(role) {
   return [
     {
@@ -580,48 +466,38 @@ function navItemsFor(role) {
     }
   ].filter(item => item.roles.includes(role));
 }
-
 function renderNav() {
   const items = navItemsFor(currentUser.role);
-
   const mainItems = items.filter(
     item => item.id !== "configuracoes"
   );
-
   document.querySelector(".nav").innerHTML =
     mainItems.map(item => `
       <button data-section="${item.id}">
         ${item.label}
       </button>
     `).join("");
-
   document.querySelectorAll(".nav button")
     .forEach(button => {
       button.onclick = () => {
         showSection(button.dataset.section);
       };
     });
-
   const configButton = $("configNavBtn");
-
   if (configButton) {
     configButton.style.display = items.some(
       item => item.id === "configuracoes"
     ) ? "" : "none";
-
     configButton.onclick = () => {
       showSection("configuracoes");
     };
   }
-
   $("userTag").textContent =
     currentUser.role === "admin"
       ? "👑 Administrador"
       : "👤 Funcionário";
-
   showSection(mainItems[0].id);
 }
-
 function showSection(id) {
   if (
     !currentUser ||
@@ -629,22 +505,17 @@ function showSection(id) {
   ) {
     return;
   }
-
   const allowedSections =
     navItemsFor(currentUser.role)
       .map(item => item.id);
-
   if (!allowedSections.includes(id)) {
     id = allowedSections[0];
   }
-
   document.querySelectorAll(".section")
     .forEach(section => {
       section.classList.remove("active");
     });
-
   $(id).classList.add("active");
-
   document.querySelectorAll(".nav button")
     .forEach(button => {
       button.classList.toggle(
@@ -652,44 +523,33 @@ function showSection(id) {
         button.dataset.section === id
       );
     });
-
   $("configNavBtn")?.classList.toggle(
     "active",
     id === "configuracoes"
   );
-
   renderAll();
 }
-
 // =====================================================
 // INICIALIZAÇÃO E ATUALIZAÇÃO
 // =====================================================
-
 async function initAdminApp() {
   mountReturnUI();
   mountDailyUI();
   mountOpeningHoursPanel();
   renderNav();
-
   if ($("agendaDate")) {
     $("agendaDate").value = localDate();
   }
-
   $("date").value = localDate();
   fillTimes();
-
   const today = localDate();
-
   $("reportStartDate").value =
     today.slice(0, 7) + "-01";
-
   $("reportEndDate").value =
     monthEnd(today);
-
   await refreshData();
   startLiveUpdates();
 }
-
 async function refreshData(options = {}) {
   if (
     !currentUser ||
@@ -697,12 +557,9 @@ async function refreshData(options = {}) {
   ) {
     return false;
   }
-
   const sequence = ++refreshSequence;
   const userId = currentUser.id;
-
   refreshBusy = true;
-
   try {
     const data = await Promise.all([
       api("/api/procedures"),
@@ -710,21 +567,18 @@ async function refreshData(options = {}) {
       api("/api/appointments"),
       api("/api/opening-hours")
     ]);
-
     if (
       sequence !== refreshSequence ||
       currentUser?.id !== userId
     ) {
       return false;
     }
-
     [
       procedures,
       clients,
       appointments,
       openingHours
     ] = data;
-
     appointments = appointments.map(appointment => ({
       ...appointment,
       date: String(
@@ -734,9 +588,7 @@ async function refreshData(options = {}) {
         appointment.time || ""
       ).slice(0, 5)
     }));
-
     const today = localDate();
-
     if (
       lastDataDate &&
       lastDataDate !== today &&
@@ -744,18 +596,14 @@ async function refreshData(options = {}) {
     ) {
       $("agendaDate").value = today;
     }
-
     lastDataDate = today;
-
     fillAllProcedureSelects();
     fillTimes();
     renderOpeningHoursEditor();
     renderAll();
-
     if ($("liveUpdateMessage")) {
       $("liveUpdateMessage").textContent = "";
     }
-
     return true;
   } catch (error) {
     if (
@@ -764,7 +612,6 @@ async function refreshData(options = {}) {
     ) {
       return false;
     }
-
     if (options.silent) {
       if ($("liveUpdateMessage")) {
         $("liveUpdateMessage").textContent =
@@ -773,11 +620,9 @@ async function refreshData(options = {}) {
     } else {
       alert(error.message);
     }
-
     if (/sessão|autentic/i.test(error.message)) {
       logout();
     }
-
     return false;
   } finally {
     if (sequence === refreshSequence) {
@@ -785,17 +630,14 @@ async function refreshData(options = {}) {
     }
   }
 }
-
 function startLiveUpdates() {
   clearInterval(liveTimer);
-
   if (
     !currentUser ||
     currentUser.role === "cliente"
   ) {
     return;
   }
-
   liveTimer = setInterval(() => {
     if (
       currentUser &&
@@ -806,7 +648,6 @@ function startLiveUpdates() {
     }
   }, 60000);
 }
-
 document.addEventListener(
   "visibilitychange",
   () => {
@@ -820,17 +661,14 @@ document.addEventListener(
     }
   }
 );
-
 // =====================================================
 // NOVO AGENDAMENTO
 // =====================================================
-
 function fillTimes() {
   const select = $("time");
   const previous = select.value;
   const date = $("date").value || localDate();
   const available = openingSlots(openingHours, date);
-
   select.innerHTML =
     '<option value="">' +
     (
@@ -844,53 +682,39 @@ function fillTimes() {
         ${esc(hour)}
       </option>
     `).join("");
-
   select.value =
     available.includes(previous)
       ? previous
       : "";
 }
-
 $("date").addEventListener("change", fillTimes);
-
 function resetBookingClient() {
   bookingClientId = null;
-
   $("name").readOnly = false;
   $("phone").readOnly = false;
   $("price").readOnly = false;
-
   if ($("bookingClientNotice")) {
     $("bookingClientNotice").hidden = true;
   }
 }
-
 function openModal(
   date = localDate(),
   time = ""
 ) {
   if (appointmentSaving) return;
-
   resetBookingClient();
   $("appointmentForm").reset();
-
   $("status").innerHTML =
     "<option>Confirmado</option>" +
     "<option>Cancelado</option>";
-
   $("date").value = date;
-
   fillAllProcedureSelects();
-
   $("procedure").value = "";
   $("price").value = "";
-
   fillTimes();
-
   $("time").value = time;
   $("modal").classList.add("show");
 }
-
 function openClientAppointment(id) {
   if (
     appointmentSaving ||
@@ -899,71 +723,53 @@ function openClientAppointment(id) {
   ) {
     return;
   }
-
   const client = clients.find(
     item => String(item.id) === String(id)
   );
-
   if (!client) {
     alert("Cliente não encontrado. Atualize a lista.");
     return;
   }
-
   openModal();
-
   bookingClientId = String(client.id);
-
   $("name").value = client.name;
   $("phone").value = client.phone;
-
   $("name").readOnly = true;
   $("phone").readOnly = true;
   $("price").readOnly = true;
-
   let notice = $("bookingClientNotice");
-
   if (!notice) {
     notice = document.createElement("p");
     notice.id = "bookingClientNotice";
     notice.className = "booking-client-notice";
-
     $("appointmentForm").prepend(notice);
   }
-
   notice.textContent =
     "Agendamento para " + client.name +
     ". Escolha procedimento, data e horário. " +
     "O valor é preenchido automaticamente; a observação é opcional.";
-
   notice.hidden = false;
-
   requestAnimationFrame(() => {
     $("procedure").focus();
   });
 }
-
 function closeModal() {
   $("modal").classList.remove("show");
   $("appointmentForm").reset();
   $("date").value = localDate();
-
   resetBookingClient();
 }
-
 $("appointmentForm").addEventListener(
   "submit",
   async event => {
     event.preventDefault();
-
     if (appointmentSaving) return;
-
     const bookingClient =
       bookingClientId === null
         ? null
         : clients.find(
             item => String(item.id) === bookingClientId
           );
-
     if (
       bookingClientId !== null &&
       !bookingClient
@@ -972,19 +778,14 @@ $("appointmentForm").addEventListener(
         "Este cliente não está mais na lista. " +
         "Feche o formulário e atualize os clientes."
       );
-
       return;
     }
-
     appointmentSaving = true;
-
     const submit =
       event.currentTarget.querySelector(
         'button[type="submit"], button:not([type])'
       );
-
     if (submit) submit.disabled = true;
-
     try {
       await api("/api/appointments", {
         method: "POST",
@@ -995,11 +796,9 @@ $("appointmentForm").addEventListener(
           name: bookingClient
             ? bookingClient.name
             : $("name").value.trim(),
-
           phone: bookingClient
             ? bookingClient.phone
             : $("phone").value.trim(),
-
           date: $("date").value,
           time: $("time").value,
           procedureId: $("procedure").value,
@@ -1008,23 +807,19 @@ $("appointmentForm").addEventListener(
           note: $("note").value.trim()
         })
       });
-
       closeModal();
       await refreshData();
-
       alert("Agendamento salvo com sucesso!");
     } catch (error) {
       alert(error.message);
     } finally {
       appointmentSaving = false;
-
       if (submit) {
         submit.disabled = false;
       }
     }
   }
 );
-
 $("procedure").addEventListener(
   "change",
   event => {
@@ -1032,27 +827,22 @@ $("procedure").addEventListener(
       item =>
         String(item.id) === String(event.target.value)
     );
-
     $("price").value =
       procedure ? procedure.price : "";
   }
 );
-
 if ($("phone")) {
   $("phone").addEventListener("input", () => {
     $("phone").value =
       $("phone").value.replace(/\D/g, "");
   });
 }
-
 function fillProcedureSelect(
   element,
   withPrice = false
 ) {
   if (!element) return;
-
   const previous = element.value;
-
   element.innerHTML =
     '<option value="">Selecione</option>' +
     procedures.map(procedure => `
@@ -1064,7 +854,6 @@ function fillProcedureSelect(
         ${withPrice ? ` — ${money(procedure.price)}` : ""}
       </option>
     `).join("");
-
   if (
     [...element.options].some(
       option => option.value === previous
@@ -1073,12 +862,10 @@ function fillProcedureSelect(
     element.value = previous;
   }
 }
-
 function fillAllProcedureSelects() {
   fillProcedureSelect($("procedure"), false);
   fillProcedureSelect($("clientProcedure"), true);
 }
-
 function renderAll() {
   if (
     !currentUser ||
@@ -1086,30 +873,25 @@ function renderAll() {
   ) {
     return;
   }
-
   renderDashboard();
   renderAgenda();
   renderClients();
   renderAttendances();
   renderDailyUI();
   refreshVisibleFilters();
-
   if (currentUser.role === "admin") {
     renderReports();
     renderProcedures();
   }
 }
-
 function validSales(appointment) {
   return appointment.status !== "Cancelado";
 }
-
 function pendingAppointment(appointment) {
   return !["Cancelado", "Atendido"].includes(
     appointment.status
   );
 }
-
 function periodTotals(start, end) {
   const filtered = appointments.filter(
     appointment =>
@@ -1117,7 +899,6 @@ function periodTotals(start, end) {
       appointment.date >= start &&
       appointment.date <= end
   );
-
   return {
     revenue: filtered.reduce(
       (total, appointment) =>
@@ -1127,35 +908,26 @@ function periodTotals(start, end) {
     count: filtered.length
   };
 }
-
 function startWeek(dateValue) {
   const date = new Date(
     dateValue + "T12:00:00"
   );
-
   const weekday = date.getDay();
-
   date.setDate(
     date.getDate() -
     (weekday === 0 ? 6 : weekday - 1)
   );
-
   return date.toISOString().slice(0, 10);
 }
-
 function endWeek(dateValue) {
   const date = new Date(
     startWeek(dateValue) + "T12:00:00"
   );
-
   date.setDate(date.getDate() + 6);
-
   return date.toISOString().slice(0, 10);
 }
-
 function todayAppointments() {
   const today = localDate();
-
   return appointments
     .filter(appointment =>
       appointment.date === today &&
@@ -1165,10 +937,8 @@ function todayAppointments() {
       a.time.localeCompare(b.time)
     );
 }
-
 function futureAppointments() {
   const today = localDate();
-
   return appointments
     .filter(appointment =>
       appointment.date > today &&
@@ -1179,26 +949,20 @@ function futureAppointments() {
         .localeCompare(b.date + b.time)
     );
 }
-
 // =====================================================
 // DASHBOARD
 // =====================================================
-
 function renderDashboard() {
   const today = localDate();
-
   const week = periodTotals(
     startWeek(today),
     endWeek(today)
   );
-
   const month = periodTotals(
     today.slice(0, 7) + "-01",
     monthEnd(today)
   );
-
   const day = periodTotals(today, today);
-
   $("todayLabel").textContent =
     new Date(
       today + "T12:00:00"
@@ -1208,30 +972,21 @@ function renderDashboard() {
       month: "long",
       year: "numeric"
     });
-
   $("todayRevenue").textContent =
     money(day.revenue);
-
   $("todayCount").textContent =
     `${day.count} atendimento(s)`;
-
   $("weekRevenue").textContent =
     money(week.revenue);
-
   $("weekCount").textContent =
     `${week.count} atendimento(s)`;
-
   $("monthRevenue").textContent =
     money(month.revenue);
-
   $("monthCount").textContent =
     `${month.count} atendimento(s)`;
-
   $("freeCount").textContent =
     openingSlots(openingHours, today).length;
-
   const list = todayAppointments();
-
   $("nextAppointments").innerHTML = list.length
     ? `
       <div class="table-wrap">
@@ -1243,23 +998,18 @@ function renderDashboard() {
             <th>Valor</th>
             <th>Ações</th>
           </tr>
-
           ${list.map(appointment => `
             <tr>
               <td>${fmtDate(appointment.date)}</td>
               <td>${esc(appointment.time)}</td>
-
               <td>
                 <b>${esc(appointment.name)}</b><br>
-
                 <small>
                   ${esc(appointment.procedure)}
                   ${isReturn(appointment) ? " · 🔄 Retorno" : ""}
                 </small>
               </td>
-
               <td>${money(appointment.price)}</td>
-
               <td>
                 <button
                   type="button"
@@ -1279,41 +1029,32 @@ function renderDashboard() {
         Nenhum atendimento pendente para hoje.
       </div>
     `;
-
   const average = month.count
     ? month.revenue / month.count
     : 0;
-
   $("monthSummary").innerHTML = `
     <p><b>${month.count}</b> atendimento(s) no mês</p>
     <p>Ticket médio: <b>${money(average)}</b></p>
     <p>Faturamento: <b>${money(month.revenue)}</b></p>
   `;
-
   const isAdmin = currentUser?.role === "admin";
-
   $("monthCardWrap").style.display =
     isAdmin ? "" : "none";
-
   $("monthSummaryPanel").style.display =
     isAdmin ? "" : "none";
-
   $("dashCards").classList.toggle(
     "cols-3",
     !isAdmin
   );
 }
-
 function showAppointmentDetails(id) {
   const appointment = appointments.find(
     item => String(item.id) === String(id)
   );
-
   if (!appointment) {
     alert("Atendimento não encontrado.");
     return;
   }
-
   alert(
     `Cliente: ${appointment.name}\n` +
     `Telefone: ${appointment.phone}\n` +
@@ -1326,16 +1067,12 @@ function showAppointmentDetails(id) {
     `Observação: ${appointment.note || "-"}`
   );
 }
-
 // =====================================================
 // NOTIFICAÇÕES E ATENDIMENTOS FUTUROS
 // =====================================================
-
 function mountDailyUI() {
   if ($("notificationBell")) return;
-
   const style = document.createElement("style");
-
   style.textContent = `
     .notification-bell {
       display:flex;
@@ -1352,7 +1089,6 @@ function mountDailyUI() {
       cursor:pointer;
       margin:12px 0;
     }
-
     .notification-count {
       border-radius:20px;
       background:#ba577b;
@@ -1360,12 +1096,10 @@ function mountDailyUI() {
       padding:3px 9px;
       font-weight:bold;
     }
-
     #futurePanel {margin-top:24px}
     #futurePanel .table-wrap {max-height:500px;overflow:auto}
     #futurePanel h2 {margin-top:0}
     #futureCount {color:#8a6475}
-
     .multi-slot {
       font:inherit;
       text-align:left;
@@ -1373,13 +1107,11 @@ function mountDailyUI() {
       width:100%;
       color:inherit;
     }
-
     .multi-slot span,
     .multi-slot small {
       display:block;
       margin-top:5px;
     }
-
     #dailyDialog {
       width:min(850px,calc(100vw - 32px));
       max-height:85vh;
@@ -1391,18 +1123,14 @@ function mountDailyUI() {
       color:#302c38;
       background:white;
     }
-
     #dailyDialog::backdrop {
       background:rgba(35,20,30,.45);
     }
-
     #dailyDialog .table-wrap {overflow:auto}
     #dailyDialog table {min-width:720px}
-
     #dailyToast[hidden] {
       display:none!important;
     }
-
     #dailyToast {
       position:fixed;
       z-index:9999;
@@ -1418,26 +1146,19 @@ function mountDailyUI() {
       border-radius:14px;
       box-shadow:0 8px 30px #0002;
     }
-
     #dailyToast p {margin:0 0 12px}
-
     #liveUpdateMessage {
       color:#9b4b64;
       font-size:13px;
     }
   `;
-
   document.head.appendChild(style);
-
   const bell = document.createElement("button");
-
   bell.id = "notificationBell";
   bell.type = "button";
   bell.className = "notification-bell";
-
   bell.innerHTML = `
     <span>🔔 Atendimentos de hoje</span>
-
     <span
       id="notificationCount"
       class="notification-count"
@@ -1445,74 +1166,53 @@ function mountDailyUI() {
       0
     </span>
   `;
-
   document.querySelector(".nav")
     .insertAdjacentElement("beforebegin", bell);
-
   bell.onclick = openDailyNotifications;
-
   const panel = document.createElement("div");
-
   panel.id = "futurePanel";
   panel.className = "panel";
-
   panel.innerHTML = `
     <h2>📅 Atendimentos futuros</h2>
     <p id="futureCount"></p>
-
     <div
       id="futureAppointmentsTable"
       class="table-wrap"
     ></div>
-
     <p id="liveUpdateMessage" role="status"></p>
   `;
-
   $("dashboard").appendChild(panel);
-
   const heading = $("nextAppointments")
     ?.closest(".panel")
     ?.querySelector("h2");
-
   if (heading) {
     heading.textContent = "Atendimentos de hoje";
   }
-
   const freeCard =
     $("freeCount")?.closest(".card");
-
   if (freeCard?.querySelector(".label")) {
     freeCard.querySelector(".label").textContent =
       "Horários para agendar hoje";
   }
-
   if (freeCard?.querySelector(".small")) {
     freeCard.querySelector(".small").textContent =
       "Permite vários clientes por horário";
   }
-
   const dialog = document.createElement("dialog");
-
   dialog.id = "dailyDialog";
-
   dialog.setAttribute(
     "aria-labelledby",
     "dailyTitle"
   );
-
   dialog.innerHTML = `
     <h2 id="dailyTitle">
       🔔 Atendimentos de hoje
     </h2>
-
     <p id="dailySummary"></p>
-
     <div id="dailyTable" class="table-wrap"></div>
-
     <p>
       Os avisos são atualizados enquanto o sistema estiver aberto.
     </p>
-
     <div class="return-actions">
       <button
         type="button"
@@ -1521,7 +1221,6 @@ function mountDailyUI() {
       >
         Atualizar
       </button>
-
       <button
         type="button"
         id="dailyClose"
@@ -1531,33 +1230,25 @@ function mountDailyUI() {
       </button>
     </div>
   `;
-
   document.body.appendChild(dialog);
-
   $("dailyClose").onclick = () => {
     dialog.close();
   };
-
   $("dailyRefresh").onclick = async () => {
     $("dailyRefresh").disabled = true;
-
     try {
       await refreshData();
     } finally {
       $("dailyRefresh").disabled = false;
     }
   };
-
   const toast = document.createElement("div");
-
   toast.id = "dailyToast";
   toast.hidden = true;
   toast.setAttribute("role", "status");
   toast.setAttribute("aria-live", "polite");
-
   toast.innerHTML = `
     <p id="dailyToastText"></p>
-
     <div class="return-actions">
       <button
         type="button"
@@ -1566,7 +1257,6 @@ function mountDailyUI() {
       >
         Ver atendimentos
       </button>
-
       <button
         type="button"
         id="toastClose"
@@ -1576,17 +1266,13 @@ function mountDailyUI() {
       </button>
     </div>
   `;
-
   document.body.appendChild(toast);
-
   $("toastView").onclick = openDailyNotifications;
-
   $("toastClose").onclick = () => {
     toast.hidden = true;
     clearTimeout(toastTimer);
   };
 }
-
 function renderDailyUI() {
   if (
     !$("notificationBell") ||
@@ -1595,22 +1281,17 @@ function renderDailyUI() {
   ) {
     return;
   }
-
   const today = localDate();
   const list = todayAppointments();
   const future = futureAppointments();
-
   $("notificationCount").textContent =
     list.length;
-
   $("notificationBell").setAttribute(
     "aria-label",
     `${list.length} atendimento(s) pendente(s) hoje`
   );
-
   $("dailySummary").textContent =
     `${fmtDate(today)} · ${list.length} atendimento(s) pendente(s)`;
-
   $("dailyTable").innerHTML = list.length
     ? renderPeriodTable(list)
     : `
@@ -1618,10 +1299,8 @@ function renderDailyUI() {
         Nenhum atendimento pendente para hoje.
       </div>
     `;
-
   $("futureCount").textContent =
     `${future.length} agendamento(s) futuro(s), em ordem de data.`;
-
   $("futureAppointmentsTable").innerHTML =
     future.length
       ? renderPeriodTable(future)
@@ -1630,59 +1309,44 @@ function renderDailyUI() {
           Nenhum agendamento futuro pendente.
         </div>
       `;
-
   const ids = new Set(
     list.map(appointment =>
       String(appointment.id)
     )
   );
-
   const newDay = notificationDate !== today;
-
   const added = [...ids].some(
     id => !notifiedIds.has(id)
   );
-
   if (list.length && (newDay || added)) {
     $("dailyToastText").textContent =
       `🔔 Você tem ${list.length} atendimento(s) para hoje, ${fmtDate(today)}.`;
-
     $("dailyToast").hidden = false;
-
     clearTimeout(toastTimer);
-
     toastTimer = setTimeout(() => {
       $("dailyToast").hidden = true;
     }, 15000);
   }
-
   if (!list.length) {
     $("dailyToast").hidden = true;
   }
-
   notificationDate = today;
   notifiedIds = ids;
 }
-
 function openDailyNotifications() {
   if (!$("dailyDialog")) return;
-
   $("dailyToast").hidden = true;
   clearTimeout(toastTimer);
-
   if (!$("dailyDialog").open) {
     $("dailyDialog").showModal();
   }
-
   if (!refreshBusy) {
     refreshData({ silent: true });
   }
 }
-
 // =====================================================
 // FILTROS POR PERÍODO
 // =====================================================
-
 function periodListAndTotals(start, end) {
   const list = appointments
     .filter(appointment =>
@@ -1694,13 +1358,11 @@ function periodListAndTotals(start, end) {
       (a.date + a.time)
         .localeCompare(b.date + b.time)
     );
-
   const revenue = list.reduce(
     (total, appointment) =>
       total + Number(appointment.price),
     0
   );
-
   return {
     list,
     revenue,
@@ -1710,7 +1372,6 @@ function periodListAndTotals(start, end) {
       : 0
   };
 }
-
 function statusMarkup(appointment) {
   const label = appointment.status +
     (
@@ -1719,14 +1380,12 @@ function statusMarkup(appointment) {
         ? " · Retorno"
         : ""
     );
-
   return `
     <span class="badge ${badge(appointment.status)}">
       ${esc(label)}
     </span>
   `;
 }
-
 function renderPeriodTable(list) {
   if (!list.length) {
     return `
@@ -1735,7 +1394,6 @@ function renderPeriodTable(list) {
       </div>
     `;
   }
-
   return `
     <table>
       <tr>
@@ -1747,7 +1405,6 @@ function renderPeriodTable(list) {
         <th>Status</th>
         <th>Ações</th>
       </tr>
-
       ${list.map(appointment => `
         <tr>
           <td>${fmtDate(appointment.date)}</td>
@@ -1762,87 +1419,66 @@ function renderPeriodTable(list) {
     </table>
   `;
 }
-
 function applyDashboardFilter() {
   const start = $("dashFilterStart").value;
   const end = $("dashFilterEnd").value;
-
   if (!start || !end) {
     alert("Selecione a data inicial e a data final.");
     return;
   }
-
   if (start > end) {
     alert(
       "A data inicial precisa ser anterior ou igual à data final."
     );
     return;
   }
-
   const result = periodListAndTotals(start, end);
-
   $("dashFilterCards").style.display = "";
-
   $("dashFilterRevenue").textContent =
     money(result.revenue);
-
   $("dashFilterCount").textContent =
     result.count;
-
   $("dashFilterTicket").textContent =
     money(result.ticket);
-
   $("dashFilterTable").innerHTML =
     renderPeriodTable(result.list);
 }
-
 function clearDashboardFilter() {
   $("dashFilterStart").value = "";
   $("dashFilterEnd").value = "";
   $("dashFilterCards").style.display = "none";
   $("dashFilterTable").innerHTML = "";
 }
-
 function applyAgendaFilter() {
   const start = $("agendaFilterStart").value;
   const end = $("agendaFilterEnd").value;
-
   if (!start || !end) {
     alert("Selecione a data inicial e a data final.");
     return;
   }
-
   if (start > end) {
     alert(
       "A data inicial precisa ser anterior ou igual à data final."
     );
     return;
   }
-
   const result = periodListAndTotals(start, end);
-
   $("agendaFilterCards").style.display = "";
-
   $("agendaFilterRevenue").textContent =
     money(result.revenue);
-
   $("agendaFilterCount").textContent =
     result.count;
-
   $("agendaFilterTicket").textContent =
     money(result.ticket);
-
   $("agendaFilterTable").innerHTML =
     renderPeriodTable(result.list);
 }
-
 function clearAgendaFilter() {
   $("agendaFilterStart").value = "";
   $("agendaFilterEnd").value = "";
   $("agendaFilterCards").style.display = "none";
   $("agendaFilterTable").innerHTML = "";
 }
-
 function refreshVisibleFilters() {
   for (const [prefix, apply] of [
     ["dash", applyDashboardFilter],
@@ -1850,30 +1486,25 @@ function refreshVisibleFilters() {
   ]) {
     const start = $(prefix + "FilterStart")?.value;
     const end = $(prefix + "FilterEnd")?.value;
-
     if (start && end && start <= end) {
       apply();
     }
   }
 }
-
 // =====================================================
 // AGENDA
 // =====================================================
-
 function setStatus(id, newStatus) {
   if (newStatus === "Retorno") {
     openReturnModal(id);
     return;
   }
-
   if (
     newStatus === "Cancelado" &&
     !confirm("Cancelar este agendamento?")
   ) {
     return;
   }
-
   api(
     `/api/appointments/${encodeURIComponent(id)}/status`,
     {
@@ -1889,10 +1520,20 @@ function setStatus(id, newStatus) {
     .then(() => refreshData())
     .catch(error => alert(error.message));
 }
-
 function appointmentActions(appointment) {
   const id = idArgument(appointment.id);
-
+  const phone = String(appointment.phone || "").replace(/\D/g, "");
+  const whatsappNumber = phone.startsWith("55")
+    ? phone
+    : phone.length === 11
+      ? "55" + phone
+      : phone;
+  const message = encodeURIComponent(
+    `Olá! Passando para lembrar que temos um agendamento hoje às ${appointment.time}. Até logo!`
+  );
+  const whatsappLink = phone
+    ? `https://wa.me/${whatsappNumber}?text=${message}`
+    : "";
   return `
     <div class="return-actions">
       <button
@@ -1903,7 +1544,6 @@ function appointmentActions(appointment) {
       >
         Confirmado
       </button>
-
       <button
         type="button"
         class="btn danger btn-sm"
@@ -1912,7 +1552,6 @@ function appointmentActions(appointment) {
       >
         Cancelado
       </button>
-
       <button
         type="button"
         class="btn primary btn-sm"
@@ -1921,14 +1560,26 @@ function appointmentActions(appointment) {
       >
         🔄 Retorno
       </button>
+      ${
+        whatsappLink
+          ? `
+            <a
+              class="btn secondary btn-sm"
+              href="${esc(whatsappLink)}"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              💬 WhatsApp
+            </a>
+          `
+          : ""
+      }
     </div>
   `;
 }
-
 function renderAgenda() {
   const selectedDate =
     $("agendaDate")?.value || localDate();
-
   const list = appointments
     .filter(appointment =>
       appointment.date === selectedDate
@@ -1936,18 +1587,15 @@ function renderAgenda() {
     .sort((a, b) =>
       a.time.localeCompare(b.time)
     );
-
   const dayHours = openingSlots(
     openingHours,
     selectedDate
   );
-
   $("slots").innerHTML = dayHours.map(hour => {
     const group = list.filter(appointment =>
       appointment.time === hour &&
       appointment.status !== "Cancelado"
     );
-
     return `
       <button
         type="button"
@@ -1955,7 +1603,6 @@ function renderAgenda() {
         onclick="openModal('${selectedDate}', '${hour}')"
       >
         <strong>${esc(hour)}</strong>
-
         <span>
           ${
             group.length
@@ -1963,14 +1610,12 @@ function renderAgenda() {
               : "Disponível"
           }
         </span>
-
         ${group.map(appointment => `
           <small>
             ${esc(appointment.name)}
             ${isReturn(appointment) ? " · Retorno" : ""}
           </small>
         `).join("")}
-
         <small>+ Agendar neste horário</small>
       </button>
     `;
@@ -1979,7 +1624,6 @@ function renderAgenda() {
       Nenhum horário de atendimento disponível nesta data.
     </div>
   `;
-
   $("dayTable").innerHTML = list.length
     ? `
       <table>
@@ -1993,37 +1637,35 @@ function renderAgenda() {
           <th>Obs.</th>
           <th>Ações</th>
         </tr>
-
         ${list.map(appointment => {
           const client = clients.find(
             item => item.phone === appointment.phone
           );
-
           return `
             <tr>
               <td>
                 <b>${esc(appointment.time)}</b>
               </td>
-
               <td>
                 ${esc(appointment.name)}<br>
                 <small>${esc(appointment.phone)}</small>
               </td>
-
               <td>
                 ${
                   client?.photo
                     ? `
                       <img
                         src="${esc(client.photo)}"
-                        class="client-photo"
+                        class="client-photo clickable-photo"
                         alt="Foto do cliente"
+                        onclick="openPhotoViewer('${esc(client.photo)}')"
+                        title="Clique para ampliar"
+                        style="cursor:pointer"
                       >
                     `
                     : "<small>Sem foto</small>"
                 }
               </td>
-
               <td>${esc(appointment.procedure)}</td>
               <td>${money(appointment.price)}</td>
               <td>${statusMarkup(appointment)}</td>
@@ -2040,7 +1682,6 @@ function renderAgenda() {
       </div>
     `;
 }
-
 function badge(status) {
   return {
     Agendado: "b-agendado",
@@ -2050,65 +1691,64 @@ function badge(status) {
     Retorno: "b-retorno"
   }[status] || "b-agendado";
 }
-
 function changeDay(numberOfDays) {
   const date = new Date(
     (
       $("agendaDate").value || localDate()
     ) + "T12:00:00"
   );
-
   date.setDate(
     date.getDate() + numberOfDays
   );
-
   $("agendaDate").value =
     date.toISOString().slice(0, 10);
-
   renderAgenda();
 }
-
 function goToday() {
   if ($("agendaDate")) {
     $("agendaDate").value = localDate();
   }
-
   renderAgenda();
 }
-
 // =====================================================
 // CLIENTES
 // =====================================================
-
 function openClientModal() {
   $("clientModal").classList.add("show");
 }
-
 function closeClientModal() {
   $("clientModal").classList.remove("show");
   $("clientForm").reset();
   $("photoPreview").style.display = "none";
   $("photoPreview").src = "";
 }
-
+function openPhotoViewer(url) {
+  if (!url) return;
+  const viewer = $("photoViewer");
+  const img = $("photoViewerImg");
+  if (!viewer || !img) return;
+  img.src = url;
+  viewer.classList.add("show");
+}
+function closePhotoViewer() {
+  const viewer = $("photoViewer");
+  const img = $("photoViewerImg");
+  if (viewer) viewer.classList.remove("show");
+  if (img) img.src = "";
+}
 $("clientPhoto").addEventListener(
   "change",
   () => {
     const file = $("clientPhoto").files[0];
-
     if (!file) return;
-
     const reader = new FileReader();
-
     reader.onload = event => {
       $("photoPreview").src = event.target.result;
       $("photoPreview").style.display = "block";
     };
-
     reader.readAsDataURL(file);
   }
 );
-
 if ($("clientPhone")) {
   $("clientPhone").addEventListener(
     "input",
@@ -2118,62 +1758,50 @@ if ($("clientPhone")) {
     }
   );
 }
-
 $("clientForm").addEventListener(
   "submit",
   async event => {
     event.preventDefault();
-
     try {
       const form = new FormData();
-
       form.append(
         "name",
         $("clientName").value.trim()
       );
-
       form.append(
         "phone",
         $("clientPhone").value.trim()
       );
-
       form.append(
         "note",
         $("clientNote").value.trim()
       );
-
       if ($("clientPhoto").files[0]) {
         form.append(
           "photo",
           $("clientPhoto").files[0]
         );
       }
-
       await api("/api/clients", {
         method: "POST",
         body: form
       });
-
       closeClientModal();
       await refreshData();
-
       alert("Cliente salvo com sucesso!");
     } catch (error) {
       alert(error.message);
     }
   }
 );
-
 async function downloadClientPhoto(id) {
   const client = clients.find(
     item => String(item.id) === String(id)
   );
-
   if (!client?.photo) {
     alert("Este cliente não tem foto cadastrada.");
     return;
   }
-
   try {
     const response = await fetch(
       client.photo,
@@ -2182,7 +1810,6 @@ async function downloadClientPhoto(id) {
         cache: "no-store"
       }
     );
-
     if (!response.ok) {
       throw new Error(
         "Não foi possível obter a foto (HTTP " +
@@ -2190,13 +1817,10 @@ async function downloadClientPhoto(id) {
         ")."
       );
     }
-
     const blob = await response.blob();
-
     const mime = blob.type
       .split(";")[0]
       .toLowerCase();
-
     if (
       !mime.startsWith("image/") ||
       !blob.size
@@ -2205,7 +1829,6 @@ async function downloadClientPhoto(id) {
         "O servidor não devolveu uma imagem válida."
       );
     }
-
     const extensions = {
       "image/jpeg": "jpg",
       "image/png": "png",
@@ -2218,26 +1841,20 @@ async function downloadClientPhoto(id) {
       "image/svg+xml": "svg",
       "image/tiff": "tiff"
     };
-
     const extension = extensions[mime] || "img";
-
     const name = String(client.name || "cliente")
       .trim()
       .replace(
         /[^a-zA-Z0-9À-ÿ_-]+/g,
         "_"
       ) || "cliente";
-
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-
     link.href = url;
     link.download = `${name}.${extension}`;
-
     document.body.appendChild(link);
     link.click();
     link.remove();
-
     setTimeout(() => {
       URL.revokeObjectURL(url);
     }, 60000);
@@ -2248,19 +1865,16 @@ async function downloadClientPhoto(id) {
     );
   }
 }
-
 function renderClients() {
   const search = (
     $("clientSearch").value || ""
   ).toLowerCase();
-
   const filteredClients = clients.filter(
     client =>
       (client.name + client.phone)
         .toLowerCase()
         .includes(search)
   );
-
   $("clientTable").innerHTML =
     filteredClients.length
       ? `
@@ -2274,7 +1888,6 @@ function renderClients() {
             <th>Observação</th>
             <th>Ações</th>
           </tr>
-
           ${filteredClients.map(client => `
             <tr>
               <td>
@@ -2282,23 +1895,23 @@ function renderClients() {
                   client.photo
                     ? `
                       <img
-                        class="client-photo"
+                        class="client-photo clickable-photo"
                         src="${esc(client.photo)}"
                         alt="Foto do cliente"
+                        onclick="openPhotoViewer('${esc(client.photo)}')"
+                        title="Clique para ampliar"
+                        style="cursor:pointer"
                       >
                     `
                     : ""
                 }
-
                 <b>${esc(client.name)}</b>
               </td>
-
               <td>${esc(client.phone)}</td>
               <td>${client.count}</td>
               <td>${money(client.total)}</td>
               <td>${client.last ? fmtDate(client.last) : "—"}</td>
               <td>${esc(client.note || "-")}</td>
-
               <td>
                 <div class="return-actions">
                   <button
@@ -2308,7 +1921,6 @@ function renderClients() {
                   >
                     + Novo agendamento
                   </button>
-
                   <button
                     type="button"
                     class="btn secondary btn-sm"
@@ -2316,7 +1928,6 @@ function renderClients() {
                   >
                     🔄 Retorno
                   </button>
-
                   ${
                     client.photo
                       ? `
@@ -2330,7 +1941,6 @@ function renderClients() {
                       `
                       : ""
                   }
-
                   ${
                     currentUser?.role === "admin"
                       ? `
@@ -2356,7 +1966,6 @@ function renderClients() {
         </div>
       `;
 }
-
 async function removeClient(id) {
   if (
     !confirm(
@@ -2367,7 +1976,6 @@ async function removeClient(id) {
   ) {
     return;
   }
-
   try {
     await api(
       `/api/clients/${encodeURIComponent(id)}`,
@@ -2375,17 +1983,14 @@ async function removeClient(id) {
         method: "DELETE"
       }
     );
-
     await refreshData();
   } catch (error) {
     alert(error.message);
   }
 }
-
 // =====================================================
 // ATENDIMENTOS E RETORNOS
 // =====================================================
-
 function isReturn(appointment) {
   return Boolean(
     appointment.isReturn ||
@@ -2393,40 +1998,32 @@ function isReturn(appointment) {
     appointment.status === "Retorno"
   );
 }
-
 function mountReturnUI() {
   if ($("returnDialog")) return;
-
   const style = document.createElement("style");
-
   style.textContent = `
     .b-retorno {
       background:#eee3ff;
       color:#66359a;
     }
-
     .return-actions {
       display:flex;
       gap:8px;
       flex-wrap:wrap;
       margin:8px 0;
     }
-
     .return-actions button {
       white-space:nowrap;
     }
-
     #openingHoursPanel[hidden],
     #editAvailableHours[hidden] {
       display:none!important;
     }
-
     #openingHoursDays {
       display:grid;
       grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
       gap:10px;
     }
-
     .attendance-row {
       display:flex;
       gap:10px;
@@ -2435,17 +2032,14 @@ function mountReturnUI() {
       border:1px solid #f1d7dc;
       border-radius:10px;
     }
-
     .attendance-row label {
       flex:1;
       min-width:0;
     }
-
     .attendance-row input {
       width:100%;
       box-sizing:border-box;
     }
-
     #returnDialog {
       width:min(600px,calc(100vw - 32px));
       max-height:90vh;
@@ -2457,35 +2051,28 @@ function mountReturnUI() {
       color:#302c38;
       background:white;
     }
-
     #returnDialog::backdrop {
       background:rgba(35,20,30,.45);
     }
-
     #returnDialog h2 {margin:0 0 8px}
     #returnClientLabel {color:#7a6570}
-
     #returnFields {
       border:0;
       padding:0;
       margin:0;
       min-width:0;
     }
-
     .return-grid {
       display:grid;
       grid-template-columns:1fr 1fr;
       gap:14px;
     }
-
     .return-grid label {
       display:grid;
       gap:6px;
       font-size:14px;
     }
-
     .return-full {grid-column:1/-1}
-
     .return-grid input,
     .return-grid select,
     .return-grid textarea {
@@ -2498,59 +2085,47 @@ function mountReturnUI() {
       background:white;
       color:inherit;
     }
-
     #returnMessage {
       min-height:22px;
       color:#a12442;
       margin:12px 0;
     }
-
     #returnDialog button:disabled {
       opacity:.55;
       cursor:wait;
     }
-
     #atendimentos table {min-width:780px}
-
     #atendimentos .filters {
       display:flex;
       gap:12px;
       flex-wrap:wrap;
       margin-bottom:16px;
     }
-
     #atendimentos .filters input,
     #atendimentos .filters select {
       padding:12px;
       border:1px solid #efd1d9;
       border-radius:9px;
     }
-
     @media(max-width:600px) {
       .return-grid {grid-template-columns:1fr}
       #returnDialog {padding:18px}
       .return-actions .btn {padding:9px}
     }
   `;
-
   document.head.appendChild(style);
-
   const section = document.createElement("section");
-
   section.id = "atendimentos";
   section.className = "section";
-
   section.innerHTML = `
     <div class="top">
       <div>
         <h1>Atendimentos e retornos</h1>
-
         <p>
           Confirme, cancele ou escolha a data do próximo atendimento.
         </p>
       </div>
     </div>
-
     <div class="panel">
       <div class="filters">
         <input
@@ -2559,7 +2134,6 @@ function mountReturnUI() {
           placeholder="Buscar cliente ou procedimento"
           aria-label="Buscar atendimento"
         >
-
         <select
           id="attendanceFilter"
           aria-label="Filtrar atendimentos"
@@ -2570,42 +2144,33 @@ function mountReturnUI() {
           <option value="Cancelado">Cancelados</option>
         </select>
       </div>
-
       <div
         id="attendanceTable"
         class="table-wrap"
       ></div>
     </div>
   `;
-
   $("agenda").insertAdjacentElement(
     "afterend",
     section
   );
-
   $("attendanceSearch").addEventListener(
     "input",
     renderAttendances
   );
-
   $("attendanceFilter").addEventListener(
     "change",
     renderAttendances
   );
-
   const dialog = document.createElement("dialog");
-
   dialog.id = "returnDialog";
-
   dialog.setAttribute(
     "aria-labelledby",
     "returnTitle"
   );
-
   dialog.innerHTML = `
     <h2 id="returnTitle">🔄 Agendar retorno</h2>
     <p id="returnClientLabel"></p>
-
     <form id="returnForm">
       <fieldset id="returnFields">
         <div class="return-grid">
@@ -2613,24 +2178,20 @@ function mountReturnUI() {
             Atendimento original
             <select id="returnOriginal" required></select>
           </label>
-
           <label class="return-full">
             Procedimento
             <select id="returnProcedure" required></select>
           </label>
-
           <label>
             Data do retorno
             <input id="returnDate" type="date" required>
           </label>
-
           <label>
             Horário
             <select id="returnTime" required>
               <option value="">Escolha a data</option>
             </select>
           </label>
-
           <label>
             Valor (R$)
             <input
@@ -2642,7 +2203,6 @@ function mountReturnUI() {
               required
             >
           </label>
-
           <label class="return-full">
             Observação
             <textarea
@@ -2653,13 +2213,11 @@ function mountReturnUI() {
           </label>
         </div>
       </fieldset>
-
       <div
         id="returnMessage"
         role="status"
         aria-live="polite"
       ></div>
-
       <div class="return-actions">
         <button
           id="returnClose"
@@ -2668,7 +2226,6 @@ function mountReturnUI() {
         >
           Fechar
         </button>
-
         <button
           id="returnSave"
           type="submit"
@@ -2679,11 +2236,8 @@ function mountReturnUI() {
       </div>
     </form>
   `;
-
   document.body.appendChild(dialog);
-
   $("returnClose").onclick = closeReturnModal;
-
   dialog.addEventListener(
     "cancel",
     event => {
@@ -2692,22 +2246,18 @@ function mountReturnUI() {
       }
     }
   );
-
   dialog.addEventListener("close", () => {
     returnSlotsRequestId++;
     returnSlotsReady = false;
   });
-
   $("returnOriginal").addEventListener(
     "change",
     selectReturnSource
   );
-
   $("returnDate").addEventListener(
     "change",
     loadReturnSlots
   );
-
   $("returnProcedure").addEventListener(
     "change",
     () => {
@@ -2716,35 +2266,28 @@ function mountReturnUI() {
           String(item.id) ===
           $("returnProcedure").value
       );
-
       $("returnPrice").value =
         procedure ? procedure.price : "";
     }
   );
-
   $("returnForm").addEventListener(
     "submit",
     saveReturn
   );
 }
-
 function renderAttendances() {
   if (!$("attendanceTable")) return;
-
   const search = $("attendanceSearch")
     .value
     .trim()
     .toLowerCase();
-
   const status = $("attendanceFilter").value;
-
   const list = appointments
     .filter(appointment => {
       const matchesSearch =
         `${appointment.name} ${appointment.phone} ${appointment.procedure}`
           .toLowerCase()
           .includes(search);
-
       const matchesStatus =
         !status ||
         (
@@ -2752,26 +2295,21 @@ function renderAttendances() {
             ? isReturn(appointment)
             : appointment.status === status
         );
-
       return matchesSearch && matchesStatus;
     })
     .sort((a, b) =>
       (b.date + b.time)
         .localeCompare(a.date + a.time)
     );
-
   $("attendanceTable").innerHTML =
     renderPeriodTable(list);
 }
-
 function openReturnModal(id) {
   mountReturnUI();
-
   const source = appointments.find(
     appointment =>
       String(appointment.id) === String(id)
   );
-
   if (
     !source ||
     source.status === "Cancelado"
@@ -2781,19 +2319,14 @@ function openReturnModal(id) {
     );
     return;
   }
-
   showReturnSources([source]);
 }
-
 function openClientReturn(id) {
   mountReturnUI();
-
   const client = clients.find(
     item => String(item.id) === String(id)
   );
-
   if (!client) return;
-
   const sources = appointments
     .filter(appointment =>
       appointment.status !== "Cancelado" &&
@@ -2808,7 +2341,6 @@ function openClientReturn(id) {
       (b.date + b.time)
         .localeCompare(a.date + a.time)
     );
-
   if (!sources.length) {
     alert(
       "Este cliente ainda não possui um atendimento para vincular o retorno. " +
@@ -2816,20 +2348,15 @@ function openClientReturn(id) {
     );
     return;
   }
-
   showReturnSources(sources);
 }
-
 function showReturnSources(sources) {
   if (returnSaving) return;
-
   if ($("dailyDialog")?.open) {
     $("dailyDialog").close();
   }
-
   $("returnForm").reset();
   $("returnFields").disabled = false;
-
   $("returnOriginal").innerHTML =
     sources.map(appointment => `
       <option value="${esc(appointment.id)}">
@@ -2837,74 +2364,54 @@ function showReturnSources(sources) {
         — ${esc(appointment.procedure)}
       </option>
     `).join("");
-
   fillProcedureSelect(
     $("returnProcedure"),
     true
   );
-
   if (!$("returnDialog").open) {
     $("returnDialog").showModal();
   }
-
   selectReturnSource();
 }
-
 function selectReturnSource() {
   const source = appointments.find(
     appointment =>
       String(appointment.id) ===
       $("returnOriginal").value
   );
-
   if (!source) return;
-
   $("returnClientLabel").textContent =
     `${source.name} · ${source.phone}`;
-
   $("returnProcedure").value =
     String(source.procedureId);
-
   const procedure = procedures.find(
     item =>
       String(item.id) ===
       $("returnProcedure").value
   );
-
   $("returnPrice").value =
     procedure ? procedure.price : "";
-
   const minimum = source.date > localDate()
     ? source.date
     : localDate();
-
   $("returnDate").min = minimum;
   $("returnDate").value = minimum;
   $("returnNote").value = "";
-
   loadReturnSlots();
 }
-
 async function loadReturnSlots() {
   const requestId = ++returnSlotsRequestId;
-
   returnSlotsReady = false;
-
   $("returnSave").disabled = true;
-
   $("returnTime").innerHTML =
     '<option value="">Carregando horários...</option>';
-
   $("returnMessage").textContent = "";
-
   const date = $("returnDate").value;
-
   const source = appointments.find(
     appointment =>
       String(appointment.id) ===
       $("returnOriginal").value
   );
-
   if (
     !source ||
     !date ||
@@ -2914,26 +2421,22 @@ async function loadReturnSlots() {
       '<option value="">Escolha uma data válida</option>';
     return;
   }
-
   try {
     const data = await api(
       "/api/public/slots?date=" +
       encodeURIComponent(date)
     );
-
     if (
       requestId !== returnSlotsRequestId ||
       !$("returnDialog").open
     ) {
       return;
     }
-
     const slots = (data.slots || []).filter(
       time =>
         date !== source.date ||
         time > source.time
     );
-
     $("returnTime").innerHTML =
       '<option value="">Selecione</option>' +
       slots.map(time => `
@@ -2941,12 +2444,9 @@ async function loadReturnSlots() {
           ${esc(time)}
         </option>
       `).join("");
-
     returnSlotsReady = slots.length > 0;
-
     $("returnSave").disabled =
       !returnSlotsReady || returnSaving;
-
     if (!slots.length) {
       $("returnMessage").textContent =
         "Nenhum horário disponível nesta data. Escolha outro dia.";
@@ -2955,18 +2455,14 @@ async function loadReturnSlots() {
     if (requestId !== returnSlotsRequestId) {
       return;
     }
-
     $("returnTime").innerHTML =
       '<option value="">Horários indisponíveis</option>';
-
     $("returnMessage").textContent =
       error.message + " Selecione a data novamente.";
   }
 }
-
 async function saveReturn(event) {
   event.preventDefault();
-
   if (
     returnSaving ||
     !returnSlotsReady ||
@@ -2974,9 +2470,7 @@ async function saveReturn(event) {
   ) {
     return;
   }
-
   const id = $("returnOriginal").value;
-
   const payload = {
     date: $("returnDate").value,
     time: $("returnTime").value,
@@ -2984,15 +2478,12 @@ async function saveReturn(event) {
     price: $("returnPrice").value,
     note: $("returnNote").value.trim()
   };
-
   returnSaving = true;
-
   $("returnFields").disabled = true;
   $("returnSave").disabled = true;
   $("returnClose").disabled = true;
   $("returnSave").textContent = "Salvando...";
   $("returnMessage").textContent = "";
-
   try {
     await api(
       "/api/appointments/" +
@@ -3006,13 +2497,9 @@ async function saveReturn(event) {
         body: JSON.stringify(payload)
       }
     );
-
     $("returnDialog").close();
-
     await refreshData();
-
     showSection("atendimentos");
-
     alert(
       `Retorno agendado para ${fmtDate(payload.date)} às ${payload.time}.`
     );
@@ -3021,58 +2508,46 @@ async function saveReturn(event) {
       error.message;
   } finally {
     returnSaving = false;
-
     $("returnFields").disabled = false;
     $("returnSave").disabled = !returnSlotsReady;
     $("returnClose").disabled = false;
     $("returnSave").textContent = "Agendar retorno";
   }
 }
-
 function closeReturnModal() {
   if (!returnSaving) {
     $("returnDialog").close();
   }
 }
-
 // =====================================================
 // PROCEDIMENTOS
 // =====================================================
-
 function readProcedurePrice(value) {
   const text = String(value ?? "")
     .trim()
     .replace(",", ".");
-
   if (!/^\d{1,8}(\.\d{1,2})?$/.test(text)) {
     return null;
   }
-
   const price = Number(text);
-
   return Number.isFinite(price) &&
     price <= 99999999.99
       ? price
       : null;
 }
-
 async function addProcedure() {
   const name = $("procName").value.trim();
-
   const price = readProcedurePrice(
     $("procPrice").value
   );
-
   if (!name || name.length > 150) {
     alert("Informe um nome de até 150 caracteres.");
     return;
   }
-
   if (price === null) {
     alert("Informe um valor válido, como 40 ou 40,50.");
     return;
   }
-
   try {
     await api("/api/procedures", {
       method: "POST",
@@ -3081,39 +2556,30 @@ async function addProcedure() {
       },
       body: JSON.stringify({ name, price })
     });
-
     $("procName").value = "";
     $("procPrice").value = "";
-
     await refreshData();
   } catch (error) {
     alert(error.message);
   }
 }
-
 async function editProcedurePrice(id) {
   const procedure = procedures.find(
     item => String(item.id) === String(id)
   );
-
   if (!procedure) return;
-
   const value = prompt(
     'Novo valor de "' + procedure.name + '" (R$):',
     Number(procedure.price)
       .toFixed(2)
       .replace(".", ",")
   );
-
   if (value === null) return;
-
   const price = readProcedurePrice(value);
-
   if (price === null) {
     alert("Informe um valor válido, como 40 ou 40,50.");
     return;
   }
-
   try {
     await api(
       "/api/procedures/" +
@@ -3127,9 +2593,7 @@ async function editProcedurePrice(id) {
         body: JSON.stringify({ price })
       }
     );
-
     await refreshData();
-
     alert(
       "Valor atualizado! O novo preço será usado nos próximos agendamentos."
     );
@@ -3137,7 +2601,6 @@ async function editProcedurePrice(id) {
     alert(error.message);
   }
 }
-
 async function removeProcedure(id) {
   if (
     !confirm(
@@ -3146,7 +2609,6 @@ async function removeProcedure(id) {
   ) {
     return;
   }
-
   try {
     await api(
       "/api/procedures/" +
@@ -3155,13 +2617,11 @@ async function removeProcedure(id) {
         method: "DELETE"
       }
     );
-
     await refreshData();
   } catch (error) {
     alert(error.message);
   }
 }
-
 function renderProcedures() {
   $("procedureTable").innerHTML =
     procedures.length
@@ -3172,12 +2632,10 @@ function renderProcedures() {
             <th>Valor padrão</th>
             <th>Ações</th>
           </tr>
-
           ${procedures.map(procedure => `
             <tr>
               <td>${esc(procedure.name)}</td>
               <td>${money(procedure.price)}</td>
-
               <td>
                 <button
                   type="button"
@@ -3186,7 +2644,6 @@ function renderProcedures() {
                 >
                   Alterar valor
                 </button>
-
                 <button
                   type="button"
                   class="btn danger btn-sm"
@@ -3205,39 +2662,28 @@ function renderProcedures() {
         </div>
       `;
 }
-
 // =====================================================
 // RELATÓRIOS
 // =====================================================
-
 function updateReportPeriod(start, end) {
   const result = periodListAndTotals(start, end);
-
   $("filteredRevenue").textContent =
     money(result.revenue);
-
   $("filteredCount").textContent =
     result.count;
-
   $("filteredTicket").textContent =
     money(result.ticket);
-
   const proceduresMap = {};
-
   result.list.forEach(appointment => {
     const procedure =
       appointment.procedure || "Sem procedimento";
-
     proceduresMap[procedure] =
       (proceduresMap[procedure] || 0) + 1;
   });
-
   const rows = Object.entries(proceduresMap)
     .sort((a, b) => b[1] - a[1]);
-
   const maximum = rows[0]?.[1] || 1;
   const label = `${fmtDate(start)} até ${fmtDate(end)}`;
-
   $("procedureReport").innerHTML = `
     <p style="color:var(--muted)">
       Período: <b>${esc(label)}</b>
@@ -3252,7 +2698,6 @@ function updateReportPeriod(start, end) {
             <span>${esc(procedure)}</span>
             <b>${count}</b>
           </div>
-
           <div class="bar">
             <i style="width:${count / maximum * 100}%"></i>
           </div>
@@ -3265,61 +2710,46 @@ function updateReportPeriod(start, end) {
       `
   );
 }
-
 function applyReportFilter() {
   const start = $("reportStartDate").value;
   const end = $("reportEndDate").value;
-
   if (!start || !end) {
     alert("Selecione a data inicial e a data final.");
     return;
   }
-
   if (start > end) {
     alert(
       "A data inicial precisa ser anterior ou igual à data final."
     );
     return;
   }
-
   updateReportPeriod(start, end);
 }
-
 function clearReportFilter() {
   const today = localDate();
-
   $("reportStartDate").value =
     today.slice(0, 7) + "-01";
-
   $("reportEndDate").value =
     monthEnd(today);
-
   updateReportPeriod(
     $("reportStartDate").value,
     $("reportEndDate").value
   );
 }
-
 async function renderReports() {
   if (currentUser?.role !== "admin") return;
-
   try {
     const summary = await api(
       "/api/reports/summary"
     );
-
     $("rToday").textContent =
       money(summary.today.revenue);
-
     $("rMonth").textContent =
       money(summary.month.revenue);
-
     $("rYear").textContent =
       money(summary.year.revenue);
-
     const start = $("reportStartDate").value;
     const end = $("reportEndDate").value;
-
     if (start && end && start <= end) {
       updateReportPeriod(start, end);
     }
@@ -3330,29 +2760,22 @@ async function renderReports() {
     );
   }
 }
-
 async function downloadReportPDF(type) {
   try {
     const start =
       $("reportStartDate").value || localDate();
-
     const end =
       $("reportEndDate").value || localDate();
-
     const params = { type };
-
     if (type === "day") {
       params.date = end;
     }
-
     if (type === "month") {
       params.month = start.slice(0, 7);
     }
-
     if (type === "year") {
       params.year = start.slice(0, 4);
     }
-
     const response = await fetch(
       "/api/reports/pdf?" +
       new URLSearchParams(params),
@@ -3360,27 +2783,21 @@ async function downloadReportPDF(type) {
         credentials: "include"
       }
     );
-
     if (!response.ok) {
       const data = await response.json()
         .catch(() => ({}));
-
       throw new Error(
         data.error || "Não foi possível gerar o PDF."
       );
     }
-
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-
     link.href = url;
     link.download = `Relatorio_${type}.pdf`;
-
     document.body.appendChild(link);
     link.click();
     link.remove();
-
     setTimeout(() => {
       URL.revokeObjectURL(url);
     }, 60000);
@@ -3388,22 +2805,17 @@ async function downloadReportPDF(type) {
     alert(error.message);
   }
 }
-
 // =====================================================
 // ALTERAÇÃO DE SENHA
 // =====================================================
-
 async function changePassword(event) {
   event.preventDefault();
-
   const currentPassword = $("currentPassword").value;
   const newPassword = $("newPassword").value;
   const confirmPassword = $("confirmPassword").value;
   const message = $("passwordMessage");
-
   message.textContent = "";
   message.style.color = "var(--danger)";
-
   if (
     !currentPassword ||
     !newPassword ||
@@ -3413,25 +2825,21 @@ async function changePassword(event) {
       "Preencha todos os campos.";
     return;
   }
-
   if (newPassword !== confirmPassword) {
     message.textContent =
       "A nova senha e a confirmação não são iguais.";
     return;
   }
-
   if (newPassword.length < 6) {
     message.textContent =
       "A nova senha deve ter pelo menos 6 caracteres.";
     return;
   }
-
   if (currentPassword === newPassword) {
     message.textContent =
       "A nova senha deve ser diferente da senha atual.";
     return;
   }
-
   try {
     const result = await api(
       "/api/auth/password",
@@ -3447,27 +2855,21 @@ async function changePassword(event) {
         })
       }
     );
-
     message.style.color = "var(--success)";
-
     message.textContent =
       result.message || "Senha alterada com sucesso!";
-
     $("passwordForm").reset();
   } catch (error) {
     message.textContent = error.message;
   }
 }
-
 function clearPasswordForm() {
   $("passwordForm").reset();
   $("passwordMessage").textContent = "";
 }
-
 // =====================================================
 // AGENDAMENTO PÚBLICO
 // =====================================================
-
 async function initClientPage() {
   try {
     [procedures, openingHours] = await Promise.all([
@@ -3478,59 +2880,64 @@ async function initClientPage() {
     alert(error.message);
     return;
   }
-
   $("clientBookingForm").reset();
-
   $("cbPhotoPreview").style.display = "none";
   $("clientStepForm").style.display = "block";
   $("clientSuccess").style.display = "none";
   $("cbDate").value = localDate();
-
   fillProcedureSelect(
     $("clientProcedure"),
     true
   );
-
   selectedSlot = "";
   renderClientSlots();
 }
-
 $("cbDate").addEventListener(
   "change",
   renderClientSlots
 );
-
 async function renderClientSlots() {
   const date =
     $("cbDate").value || localDate();
-
   selectedSlot = "";
-
   $("cbSlots").innerHTML = `
     <div class="empty">
       Carregando horários...
     </div>
   `;
-
   const requestId = ++clientSlotsRequestId;
-
   try {
     const data = await api(
       "/api/public/slots?date=" +
       encodeURIComponent(date)
     );
-
     if (requestId !== clientSlotsRequestId) {
       return;
     }
-
     selectedSlot = "";
-
+    const maxPerSlot =
+      Number(data.maxPerSlot) || 3;
     $("cbSlots").innerHTML =
       (data.slots || []).map(hour => {
         const count =
           Number(data.bookingsByTime?.[hour]) || 0;
-
+        const isFull = count >= maxPerSlot;
+        if (isFull) {
+          return `
+            <button
+              type="button"
+              class="slot slot-full"
+              disabled
+              aria-disabled="true"
+            >
+              <strong>${esc(hour)}</strong>
+              <span>Horário indisponível</span>
+              <small>
+                Limite de ${maxPerSlot} atendimentos atingido
+              </small>
+            </button>
+          `;
+        }
         return `
           <button
             type="button"
@@ -3540,41 +2947,36 @@ async function renderClientSlots() {
           >
             <strong>${esc(hour)}</strong>
             <span>Disponível</span>
-
             <small>
               ${
                 count
-                  ? count + " agendamento(s) · aceita novas reservas"
+                  ? count + "/" + maxPerSlot + " ocupado(s) · aceita novas reservas"
                   : "Clique para escolher"
               }
             </small>
           </button>
         `;
       }).join("") || `
-        <div class="empty">
-          Nenhum horário disponível nesta data.
-          Escolha outro dia.
-        </div>
-      `;
+      <div class="empty">
+        Nenhum horário disponível nesta data.
+        Escolha outro dia.
+      </div>
+    `;
   } catch (error) {
     if (requestId !== clientSlotsRequestId) {
       return;
     }
-
     $("cbSlots").innerHTML = `
       <div class="empty">
         Não foi possível carregar os horários.
         Selecione a data novamente.
       </div>
     `;
-
     alert(error.message);
   }
 }
-
 function pickSlot(hour) {
   selectedSlot = hour;
-
   document.querySelectorAll("#cbSlots .slot")
     .forEach(element => {
       element.classList.toggle(
@@ -3583,92 +2985,71 @@ function pickSlot(hour) {
       );
     });
 }
-
 $("cbPhoto").addEventListener(
   "change",
   () => {
     const file = $("cbPhoto").files[0];
-
     if (!file) return;
-
     const reader = new FileReader();
-
     reader.onload = event => {
       $("cbPhotoPreview").src = event.target.result;
       $("cbPhotoPreview").style.display = "block";
     };
-
     reader.readAsDataURL(file);
   }
 );
-
 $("cbPhone").type = "tel";
 $("cbPhone").inputMode = "numeric";
 $("cbPhone").maxLength = 11;
 $("cbPhone").placeholder = "85999999999";
-
 $("cbPhone").addEventListener("input", () => {
   $("cbPhone").value = $("cbPhone").value
     .replace(/\D/g, "")
     .slice(0, 11);
 });
-
 $("clientBookingForm").addEventListener(
   "submit",
   async event => {
     event.preventDefault();
-
     if (!selectedSlot) {
       alert("Escolha um horário disponível.");
       return;
     }
-
     if (publicBookingSaving) return;
-
     publicBookingSaving = true;
-
     const submit =
       event.currentTarget.querySelector(
         'button[type="submit"], button:not([type])'
       );
-
     if (submit) {
       submit.disabled = true;
     }
-
     try {
       const form = new FormData();
-
       form.append(
         "name",
         $("cbName").value.trim()
       );
-
       form.append(
         "phone",
         $("cbPhone").value.trim()
       );
-
       form.append("date", $("cbDate").value);
       form.append("time", selectedSlot);
-
       form.append(
         "procedureId",
         $("clientProcedure").value
       );
-
       form.append(
         "note",
         $("cbNote").value.trim()
       );
-
       if ($("cbPhoto").files[0]) {
         form.append(
           "photo",
           $("cbPhoto").files[0]
         );
       }
-
       const result = await api(
         "/api/public/bookings",
         {
@@ -3676,7 +3057,6 @@ $("clientBookingForm").addEventListener(
           body: form
         }
       );
-
       $("clientStepForm").style.display = "none";
       $("clientSuccess").style.display = "block";
       $("successDetails").textContent = result.details;
@@ -3685,41 +3065,31 @@ $("clientBookingForm").addEventListener(
       renderClientSlots();
     } finally {
       publicBookingSaving = false;
-
       if (submit) {
         submit.disabled = false;
       }
     }
   }
 );
-
 function newClientBooking() {
   initClientPage();
 }
-
 // =====================================================
 // TEMA CLARO / ESCURO
 // =====================================================
-
 const themeStorageKey = "agendapro.theme";
 let preferredTheme = null;
-
 const themeMedia = window.matchMedia
   ? window.matchMedia("(prefers-color-scheme: dark)")
   : null;
-
 function applyTheme(theme, save = false) {
   const dark = theme === "dark";
-
   document.documentElement.dataset.theme =
     dark ? "dark" : "light";
-
   document.documentElement.style.colorScheme =
     dark ? "dark" : "light";
-
   if (save) {
     preferredTheme = dark ? "dark" : "light";
-
     try {
       localStorage.setItem(
         themeStorageKey,
@@ -3729,47 +3099,37 @@ function applyTheme(theme, save = false) {
       // Continua funcionando sem armazenamento local.
     }
   }
-
   document.querySelectorAll(".theme-toggle")
     .forEach(button => {
       button.textContent =
         dark ? "☀️ Tema claro" : "🌙 Tema escuro";
-
       button.setAttribute(
         "aria-label",
         dark
           ? "Ativar tema claro"
           : "Ativar tema escuro"
       );
-
       button.setAttribute(
         "aria-pressed",
         String(dark)
       );
-
       button.title = dark
         ? "Mudar para tema claro"
         : "Mudar para tema escuro";
     });
-
   const meta = document.querySelector(
     'meta[name="theme-color"]'
   );
-
   if (meta) {
     meta.content = dark
       ? "#171b24"
       : "#a94f6e";
   }
 }
-
 function mountThemeUI() {
   if ($("agendaThemeStyles")) return;
-
   const style = document.createElement("style");
-
   style.id = "agendaThemeStyles";
-
   style.textContent = `
     .theme-toggle {
       display:inline-flex;
@@ -3787,41 +3147,34 @@ function mountThemeUI() {
       font-weight:650;
       cursor:pointer;
     }
-
     .theme-toggle:focus-visible {
       outline:3px solid #b05c7e;
       outline-offset:3px;
     }
-
     .theme-sidebar {
       display:flex;
       justify-content:stretch;
       margin:12px 0;
     }
-
     .theme-sidebar .theme-toggle {
       width:100%;
     }
-
     .theme-public {
       display:flex;
       justify-content:flex-end;
       padding:12px 18px;
     }
-
     #authScreen {
       position:relative;
       padding-top:76px;
       box-sizing:border-box;
     }
-
     .theme-auth {
       position:absolute;
       right:18px;
       top:18px;
       z-index:2;
     }
-
     .booking-client-notice {
       padding:12px 14px;
       border:1px solid var(--border,#e1cdd4);
@@ -3830,18 +3183,15 @@ function mountThemeUI() {
       border-radius:10px;
       line-height:1.5;
     }
-
     .booking-client-notice[hidden] {
       display:none!important;
     }
-
     #appointmentForm input[readonly] {
       opacity:1;
       background:var(--bg,#f4f1f3);
       color:var(--text,#372c35);
       cursor:default;
     }
-
     html[data-theme="dark"] {
       --bg:#11151c;
       --card:#1c222d;
@@ -3864,7 +3214,6 @@ function mountThemeUI() {
       --shadow:0 8px 30px #0004;
       color-scheme:dark;
     }
-
     html[data-theme="dark"] body,
     html[data-theme="dark"] #app,
     html[data-theme="dark"] main,
@@ -3873,12 +3222,10 @@ function mountThemeUI() {
       background:#11151c!important;
       color:#edf0f7!important;
     }
-
     html[data-theme="dark"] #authScreen {
       background:linear-gradient(135deg,#141924,#302338)!important;
       color:#edf0f7!important;
     }
-
     html[data-theme="dark"] :is(
       .authBox,.auth-box,.auth-card,.auth-shell,.auth-panel,
       .auth-form,.auth-form-panel,.login-card,.panel,.card,
@@ -3889,7 +3236,6 @@ function mountThemeUI() {
       color:#edf0f7!important;
       border-color:#414b5e!important;
     }
-
     html[data-theme="dark"] :is(
       .sidebar,aside,.app-header,.topbar,
       .top-bar,.header,.mobile-header
@@ -3898,13 +3244,11 @@ function mountThemeUI() {
       color:#edf0f7!important;
       border-color:#414b5e!important;
     }
-
     html[data-theme="dark"] :is(
       h1,h2,h3,h4,label,.brand,.authLogo,.value,.stat-value
     ) {
       color:#edf0f7;
     }
-
     html[data-theme="dark"] :is(
       .muted,.small,.label,.empty,.authSub,.auth-subtitle,
       .subtitle,.top p,.section-heading p,small,
@@ -3912,7 +3256,6 @@ function mountThemeUI() {
     ) {
       color:#bbc2d0!important;
     }
-
     html[data-theme="dark"] :is(
       .role-btn,.roleBtn,.role-card,.role-option,
       .role-button,.notification-bell,.theme-toggle
@@ -3921,27 +3264,22 @@ function mountThemeUI() {
       color:#edf0f7!important;
       border-color:#505d73!important;
     }
-
     html[data-theme="dark"] :is(input,select,textarea) {
       background:#141a24!important;
       color:#edf0f7!important;
       border-color:#59657b!important;
     }
-
     html[data-theme="dark"] :is(input,textarea)::placeholder {
       color:#a8b3c7!important;
       opacity:1;
     }
-
     html[data-theme="dark"] :is(input,select,textarea):focus {
       outline:2px solid #f0a6c2;
       outline-offset:2px;
     }
-
     html[data-theme="dark"] input[readonly] {
       background:#293241!important;
     }
-
     html[data-theme="dark"] :is(
       .btn.secondary,.btn.ghost,.btn.outline,.icon-btn,.close-btn
     ) {
@@ -3949,96 +3287,79 @@ function mountThemeUI() {
       color:#edf0f7!important;
       border-color:#59657b!important;
     }
-
     html[data-theme="dark"] .btn.primary {
       background:#a04467!important;
       color:#fff!important;
       border-color:#cb7c9a!important;
     }
-
     html[data-theme="dark"] .btn.success {
       background:#285b46!important;
       color:#edfff6!important;
       border-color:#6aa887!important;
     }
-
     html[data-theme="dark"] .btn.danger {
       background:#813448!important;
       color:#fff!important;
       border-color:#c9778a!important;
     }
-
     html[data-theme="dark"] :is(
       .nav button,.sidebar-bottom button,#configNavBtn
     ) {
       color:#d1d7e3!important;
     }
-
     html[data-theme="dark"] :is(
       .nav button.active,.nav button:hover,#configNavBtn.active
     ) {
       background:#403043!important;
       color:#ffe2ed!important;
     }
-
     html[data-theme="dark"] :is(table,tbody,tr,td) {
       background:transparent;
       color:#edf0f7;
       border-color:#414b5e!important;
     }
-
     html[data-theme="dark"] th {
       background:#252d3a!important;
       color:#d1d7e3!important;
       border-color:#414b5e!important;
     }
-
     html[data-theme="dark"] tr:hover td {
       background:#252d3a!important;
     }
-
     html[data-theme="dark"] :is(.slot,.slot.free) {
       background:#1d352e!important;
       color:#d8f5e7!important;
       border-color:#487462!important;
     }
-
     html[data-theme="dark"] .slot.busy {
       background:#402b36!important;
       color:#ffdde8!important;
     }
-
     html[data-theme="dark"] .slot.selected {
       background:#43314e!important;
       color:#fff!important;
       outline:3px solid #dba0ec!important;
     }
-
     html[data-theme="dark"] :is(.b-agendado,.badge.b-agendado) {
       background:#45303e!important;
       color:#ffdbeb!important;
     }
-
     html[data-theme="dark"] :is(.b-confirmado,.badge.b-confirmado) {
       background:#254c3b!important;
       color:#c5f6dd!important;
     }
-
     html[data-theme="dark"] :is(.b-cancelado,.badge.b-cancelado) {
       background:#582d3b!important;
       color:#ffd1dc!important;
     }
-
     html[data-theme="dark"] :is(.b-atendido,.badge.b-atendido) {
       background:#4a4026!important;
       color:#ffe6ad!important;
     }
-
     html[data-theme="dark"] :is(.b-retorno,.badge.b-retorno) {
       background:#45315d!important;
       color:#ebd3ff!important;
     }
-
     html[data-theme="dark"] :is(
       .attendance-row,.booking-client-notice
     ) {
@@ -4046,45 +3367,35 @@ function mountThemeUI() {
       color:#edf0f7!important;
       border-color:#505d73!important;
     }
-
     html[data-theme="dark"] :is(
       #returnMessage,#liveUpdateMessage,#loginError
     ) {
       color:#ffafc1!important;
     }
-
     html[data-theme="dark"] .bar {
       background:#30394a!important;
     }
-
     html[data-theme="dark"] dialog::backdrop {
       background:#0009;
     }
-
     @media(max-width:600px) {
       .theme-auth {top:12px;right:12px}
       .theme-toggle {font-size:13px}
       .theme-public {padding:10px 12px}
     }
   `;
-
   document.head.appendChild(style);
-
   const addButton = (
     parent,
     className,
     before = null
   ) => {
     if (!parent) return;
-
     const host = document.createElement("div");
     host.className = className;
-
     const button = document.createElement("button");
-
     button.type = "button";
     button.className = "theme-toggle";
-
     button.onclick = () => {
       applyTheme(
         document.documentElement.dataset.theme === "dark"
@@ -4093,23 +3404,18 @@ function mountThemeUI() {
         true
       );
     };
-
     host.appendChild(button);
-
     if (before) {
       parent.insertBefore(host, before);
     } else {
       parent.prepend(host);
     }
   };
-
   addButton(
     $("authScreen"),
     "theme-auth"
   );
-
   const nav = document.querySelector(".nav");
-
   if (nav) {
     addButton(
       nav.parentElement,
@@ -4117,29 +3423,24 @@ function mountThemeUI() {
       nav
     );
   }
-
   addButton(
     $("clientPage"),
     "theme-public"
   );
-
   try {
     const saved = localStorage.getItem(
       themeStorageKey
     );
-
     if (saved === "dark" || saved === "light") {
       preferredTheme = saved;
     }
   } catch {
     // Sem armazenamento, usa a preferência do aparelho.
   }
-
   applyTheme(
     preferredTheme ||
     (themeMedia?.matches ? "dark" : "light")
   );
-
   const followSystem = event => {
     if (!preferredTheme) {
       applyTheme(
@@ -4147,14 +3448,12 @@ function mountThemeUI() {
       );
     }
   };
-
   if (themeMedia?.addEventListener) {
     themeMedia.addEventListener(
       "change",
       followSystem
     );
   }
-
   window.addEventListener(
     "storage",
     event => {
@@ -4164,13 +3463,11 @@ function mountThemeUI() {
       ) {
         return;
       }
-
       preferredTheme =
         event.newValue === "dark" ||
         event.newValue === "light"
           ? event.newValue
           : null;
-
       applyTheme(
         preferredTheme ||
         (themeMedia?.matches ? "dark" : "light")
@@ -4178,21 +3475,17 @@ function mountThemeUI() {
     }
   );
 }
-
 // =====================================================
 // CORREÇÃO DE CONTRASTE DO TEMA ESCURO
 // =====================================================
-
 function mountDarkContrastFix() {
   const styleId = "agendaDarkContrastFix";
   let style = document.getElementById(styleId);
-
   if (!style) {
     style = document.createElement("style");
     style.id = styleId;
     document.head.appendChild(style);
   }
-
   style.textContent = `
     html[data-theme="dark"] {
       --primary:#f0a6c2;
@@ -4202,7 +3495,6 @@ function mountDarkContrastFix() {
       --muted:#c2ccda;
       --border:#526179;
     }
-
     html[data-theme="dark"] :is(
       .auth-intro,.auth-content,.mini-card,.note-box,.user-tag,
       .brand-icon,.role-icon,.step-number,.salon-product,
@@ -4212,7 +3504,6 @@ function mountDarkContrastFix() {
       color:#f1f5f9!important;
       border-color:#526179!important;
     }
-
     html[data-theme="dark"] :is(
       .auth-benefits,.auth-benefits div,.header-context strong,
       .mobile-brand,.field label,.mini-card strong,.booking-step,
@@ -4220,7 +3511,6 @@ function mountDarkContrastFix() {
     ) {
       color:#f1f5f9!important;
     }
-
     html[data-theme="dark"] :is(
       .sidebar-caption,.sidebar-footnote,.auth-note,.role-option small,
       .role-arrow,.mini-card span,.note-box p,.user-tag small,
@@ -4229,24 +3519,20 @@ function mountDarkContrastFix() {
     ) {
       color:#c2ccda!important;
     }
-
     html[data-theme="dark"] :is(
       a:not(.btn),.eyebrow,.brand span
     ) {
       color:#f0a6c2!important;
     }
-
     html[data-theme="dark"] a:not(.btn):hover {
       color:#ffd0e1!important;
       text-decoration:underline;
     }
-
     html[data-theme="dark"] :is(
       .sidebar-footer button,.sidebar-bottom button,.nav button
     ) {
       color:#e2e8f0!important;
     }
-
     html[data-theme="dark"] :is(
       .sidebar-footer button:hover,.sidebar-bottom button:hover,
       .nav button:hover,.nav button.active,#configNavBtn.active
@@ -4254,7 +3540,6 @@ function mountDarkContrastFix() {
       background:#443044!important;
       color:#ffe2ed!important;
     }
-
     html[data-theme="dark"] :is(
       .close,.close-btn,.icon-btn,.theme-toggle,
       .btn.secondary,.btn.ghost,.btn.outline
@@ -4263,57 +3548,47 @@ function mountDarkContrastFix() {
       color:#f1f5f9!important;
       border-color:#7b8ba3!important;
     }
-
     html[data-theme="dark"] .btn.primary {
       background:#a04467!important;
       color:#ffffff!important;
       border-color:#eea6c1!important;
     }
-
     html[data-theme="dark"] .btn.primary:hover:not(:disabled) {
       background:#863553!important;
     }
-
     html[data-theme="dark"] .btn.success {
       background:#285b46!important;
       color:#edfff6!important;
       border-color:#86c9a4!important;
     }
-
     html[data-theme="dark"] .btn.danger {
       background:#813448!important;
       color:#ffffff!important;
       border-color:#e49aab!important;
     }
-
     html[data-theme="dark"] .notification-count {
       background:#f0a6c2!important;
       color:#291825!important;
     }
-
     html[data-theme="dark"] :is(
       .role-option,.theme-toggle
     ):hover {
       border-color:#f0a6c2!important;
     }
-
     html[data-theme="dark"] :is(input,select,textarea) {
       background:#141a24!important;
       color:#f1f5f9!important;
       border-color:#7b8ba3!important;
       color-scheme:dark;
     }
-
     html[data-theme="dark"] :is(input,textarea)::placeholder {
       color:#bac6d8!important;
       opacity:1;
     }
-
     html[data-theme="dark"] :is(option,optgroup) {
       background:#141a24!important;
       color:#f1f5f9!important;
     }
-
     html[data-theme="dark"] input::file-selector-button {
       background:#303e52!important;
       color:#f1f5f9!important;
@@ -4321,18 +3596,15 @@ function mountDarkContrastFix() {
       padding:8px 12px;
       border-radius:7px;
     }
-
     html[data-theme="dark"] input[readonly] {
       background:#293241!important;
       color:#e2e8f0!important;
     }
-
     html[data-theme="dark"] input:is(
       [type="checkbox"],[type="radio"]
     ) {
       accent-color:#f0a6c2;
     }
-
     html[data-theme="dark"] :is(
       button,input,select,textarea
     ):disabled {
@@ -4342,75 +3614,62 @@ function mountDarkContrastFix() {
       border-color:#526179!important;
       cursor:not-allowed;
     }
-
     html[data-theme="dark"] :is(
       button,a,input,select,textarea
     ):focus-visible {
       outline:3px solid #ffc9df!important;
       outline-offset:3px;
     }
-
     html[data-theme="dark"] :is(.slot,.slot.free) {
       background:#1d352e!important;
       color:#d8f5e7!important;
       border-color:#719987!important;
     }
-
     html[data-theme="dark"] .slot.busy {
       background:#402b36!important;
       color:#ffdde8!important;
       border-color:#ba869b!important;
     }
-
     html[data-theme="dark"] .slot.selected {
       background:#43314e!important;
       color:#ffffff!important;
       outline:3px solid #dba0ec!important;
     }
-
     html[data-theme="dark"] .slot :is(
       strong,b,span,p,small
     ) {
       color:inherit!important;
     }
-
     html[data-theme="dark"] :is(
       .success-mark,.success-card
     ) {
       background:#203b30!important;
       color:#d5f7e3!important;
     }
-
     html[data-theme="dark"] .success-card p {
       color:#d5f7e3!important;
     }
-
     html[data-theme="dark"] :is(
       .modal,.menu-overlay
     ) {
       background:#080c14b8!important;
     }
-
     html[data-theme="dark"] dialog::backdrop {
       background:#080c14b8!important;
     }
-
     html[data-theme="dark"] .bar i {
       background:#f0a6c2!important;
     }
-
     html[data-theme="dark"] ::selection {
       background:#f0a6c2;
       color:#291825;
     }
-
     @media(max-width:600px) {
       html[data-theme="dark"] :is(
         input,select,textarea
       ) {
         font-size:16px;
       }
-
       html[data-theme="dark"] :is(
         .btn,.theme-toggle,.icon-btn,.close
       ) {
@@ -4419,24 +3678,19 @@ function mountDarkContrastFix() {
     }
   `;
 }
-
 // =====================================================
 // INICIALIZAÇÃO FINAL
 // =====================================================
-
 function bindPasswordForm() {
   const form = $("passwordForm");
-
   if (form && !form.dataset.bound) {
     form.dataset.bound = "true";
-
     form.addEventListener(
       "submit",
       changePassword
     );
   }
 }
-
 if (document.readyState === "loading") {
   document.addEventListener(
     "DOMContentLoaded",
@@ -4445,18 +3699,15 @@ if (document.readyState === "loading") {
 } else {
   bindPasswordForm();
 }
-
 async function boot() {
   try {
     const data = await api("/api/auth/me");
-
     currentUser = data.user;
     enterApp();
   } catch {
     $("authScreen").style.display = "flex";
   }
 }
-
 mountThemeUI();
 mountDarkContrastFix();
 boot();
