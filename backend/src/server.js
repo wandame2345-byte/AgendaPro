@@ -723,6 +723,13 @@ app.post('/api/appointments', auth, asyncHandler(async (req, res) => {
   }
   const appointment = await transaction(async db => {
     await assertOpeningSlot(db, date, time);
+    const countResult = await db.query(
+      "SELECT COUNT(*)::int FROM agendamentos WHERE data = $1 AND hora = $2 AND status <> 'Cancelado'",
+      [date, time]
+    );
+    if ((countResult.rows[0]?.count || 0) >= MAX_APPOINTMENTS_PER_SLOT) {
+      fail('Este horário já atingiu o limite de ' + MAX_APPOINTMENTS_PER_SLOT + ' atendimentos. Escolha outro horário.');
+    }
     let customer;
     if (body.clientId) {
       const result = await db.query(
@@ -922,6 +929,8 @@ app.patch('/api/appointments/:id/status', auth, asyncHandler(async (req, res) =>
 // =====================================================
 // AGENDAMENTO PÚBLICO
 // =====================================================
+const MAX_APPOINTMENTS_PER_SLOT = 3;
+
 app.get('/api/public/slots', asyncHandler(async (req, res) => {
   const date = validDate(req.query.date);
   const settings = await readOpeningHours();
@@ -941,6 +950,7 @@ app.get('/api/public/slots', asyncHandler(async (req, res) => {
     date,
     slots: openingSlots(settings, date),
     allowMultipleBookings: true,
+    maxPerSlot: MAX_APPOINTMENTS_PER_SLOT,
     taken: [],
     bookingsByTime
   });
@@ -953,6 +963,13 @@ app.post('/api/public/bookings', upload.single('photo'), asyncHandler(async (req
   if (openingMinutes(time) === null) fail('Horário inválido.');
   const result = await transaction(async db => {
     await assertOpeningSlot(db, date, time);
+    const countResult = await db.query(
+      "SELECT COUNT(*)::int FROM agendamentos WHERE data = $1 AND hora = $2 AND status <> 'Cancelado'",
+      [date, time]
+    );
+    if ((countResult.rows[0]?.count || 0) >= MAX_APPOINTMENTS_PER_SLOT) {
+      fail('Este horário já atingiu o limite de ' + MAX_APPOINTMENTS_PER_SLOT + ' atendimentos. Escolha outro horário.');
+    }
     const procedure = await db.query(`
       SELECT id, nome, preco
       FROM procedimentos
