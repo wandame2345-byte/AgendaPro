@@ -47,6 +47,7 @@ const security = installSecurity(app, pool, { secret: JWT_SECRET, uploadDir, fro
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(express.static(frontend, { index: false, dotfiles: 'deny' }));
+app.use('/uploads', express.static(uploadDir, { maxAge: '1d', dotfiles: 'deny' }));
 // =====================================================
 // UTILITÁRIOS
 // =====================================================
