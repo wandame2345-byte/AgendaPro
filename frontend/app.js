@@ -3791,9 +3791,14 @@ if (!products.length) {
 container.innerHTML = '<div class="empty">Nenhum produto disponível no momento.</div>';
 return;
 }
-container.innerHTML = products.map(p => `
+container.innerHTML = products.map(p => {
+const photoUrl = (p.photo && p.photo.trim() !== "") ? esc(p.photo.startsWith('/') ? p.photo : '/' + p.photo) : '';
+const photoHtml = photoUrl
+? `<div style="position:relative;width:100%;height:220px;margin-bottom:15px;cursor:pointer;" onclick="openPhotoViewer('${photoUrl}')"><img src="${photoUrl}" alt="${esc(p.name)}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;" onerror="this.style.display='none';this.parentElement.querySelector('.fallback').style.display='flex';"><div class="fallback" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;background:#f0f0f0;border-radius:10px;align-items:center;justify-content:center;color:#999;font-size:12px;">Foto indisponível</div></div>`
+: `<div style="height:220px;background:#f0f0f0;border-radius:10px;margin-bottom:15px;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px;">Sem foto</div>`;
+return `
 <div class="product-card">
-${(p.photo && p.photo.trim() !== "") ? `<div style="position:relative;width:100%;height:220px;margin-bottom:15px;"><img src="${esc(p.photo.startsWith('/') ? p.photo : '/' + p.photo)}" alt="${esc(p.name)}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;" onerror="this.style.display='none';this.parentElement.querySelector('.fallback').style.display='flex';"><div class="fallback" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;background:#f0f0f0;border-radius:10px;align-items:center;justify-content:center;color:#999;font-size:12px;">Foto indisponível</div></div>` : `<div style="height:220px;background:#f0f0f0;border-radius:10px;margin-bottom:15px;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px;">Sem foto</div>`}
+${photoHtml}
 <h3>${esc(p.name)}</h3>
 <p style="color:var(--muted);font-size:13px;margin-bottom:10px">${esc(p.description || '')}</p>
 <div class="price">${money(p.price)}</div>
@@ -3801,7 +3806,8 @@ ${(p.photo && p.photo.trim() !== "") ? `<div style="position:relative;width:100%
 Adicionar ao Carrinho
 </button>
 </div>
-`).join("");
+`;
+}).join("");
 }
 function addToCart(id, name, price) {
 const existing = cart.find(item => item.productId === id);
