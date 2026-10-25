@@ -4610,7 +4610,7 @@ function renderProductsList(products) {
   }
   container.innerHTML = products.map(p => `
     <div class="product-card">
-      ${p.photo ? `<img src="${esc(p.photo.startsWith('/') ? p.photo : '/' + p.photo)}" alt="${esc(p.name)}">` : '<div style="height:180px;background:#f0f0f0;border-radius:10px;margin-bottom:15px;display:flex;align-items:center;justify-content:center;color:#999">Sem foto</div>'}
+      ${(p.photo && p.photo.trim() !== "") ? `<div style="position:relative;width:100%;height:220px;margin-bottom:15px;"><img src="${esc(p.photo.startsWith('/') ? p.photo : '/' + p.photo)}" alt="${esc(p.name)}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;" onerror="this.style.display='none';this.parentElement.querySelector('.fallback').style.display='flex';"><div class="fallback" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;background:#f0f0f0;border-radius:10px;align-items:center;justify-content:center;color:#999;font-size:12px;">Foto indisponível</div></div>` : `<div style="height:220px;background:#f0f0f0;border-radius:10px;margin-bottom:15px;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px;">Sem foto</div>`}
       <h3>${esc(p.name)}</h3>
       <p style="color:var(--muted);font-size:13px;margin-bottom:10px">${esc(p.description || '')}</p>
       <div class="price">${money(p.price)}</div>
@@ -4733,12 +4733,37 @@ $("checkoutForm")?.addEventListener("submit", async (e) => {
       body: JSON.stringify(payload)
     });
     
-    alert("Compra realizada com sucesso! Entraremos em contato pelo WhatsApp.");
+    // Montar mensagem com os produtos reais do carrinho
+    let msg = "*Pedido de compra - AgendaPro*\n\n";
+    cart.forEach(item => {
+      msg += "- " + item.quantity + "x " + item.name + " (" + money(item.price * item.quantity) + ")\n";
+    });
+    msg += "\n*Total: " + money(cart.reduce((s, i) => s + i.price * i.quantity, 0)) + "*";
+    msg += "\n\nCliente: " + name;
+    msg += "\nTelefone: " + phone;
+    const waUrl = "https://wa.me/5585984773871?text=" + encodeURIComponent(msg);
+
+    // Mostrar tela de sucesso no modal
+    const formEl = $("checkoutForm");
+    const itemsEl = $("cartItems");
+    const totalEl = $("cartTotal").parentElement;
+    if (formEl) formEl.style.display = "none";
+    if (totalEl) totalEl.style.display = "none";
+    if (itemsEl) {
+      itemsEl.innerHTML =
+        \'<div style="text-align:center;padding:24px 10px">\' +
+        \'<div style="font-size:52px;margin-bottom:12px">\u2705</div>\' +
+        \'<h3 style="color:#267554;font-size:20px;margin-bottom:8px">Pedido Recebido!</h3>\' +
+        \'<p style="color:#81747d;font-size:13px;margin-bottom:20px;line-height:1.6">Aguarde o contato dos nossos atendentes para confirmar seu pedido.</p>\' +
+        \'<p style="color:#a08090;font-size:12px;margin-bottom:16px">Ou envie agora pelo WhatsApp:</p>\' +
+        \'<a href="\' + waUrl + \'" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:15px;background:#25D366;color:white;border-radius:10px;font-size:15px;font-weight:700;text-decoration:none;margin-bottom:10px">\' +
+        \'<span style="font-size:22px">\ud83d\udcac</span> Enviar Pedido no WhatsApp\' +
+        \'</a>\' +
+        \'<button type="button" onclick="location.reload()" style="width:100%;padding:12px;background:#f6eef1;color:#784459;border:1px solid #ecdae2;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">Voltar ao Inicio</button>\' +
+        \'</div>\';
+    }
     cart = [];
     updateCartUI();
-    closeCartModal();
-    // Opcional: voltar para a lista de produtos
-    initComprasPage();
   } catch (error) {
     alert("Erro ao finalizar compra: " + error.message);
   }
