@@ -189,6 +189,7 @@ tr:hover td { background:#fefbfd; }
 .photo-viewer-box img { max-width: 90vw; max-height: 85vh; border-radius: 8px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); display: block; }
 .photo-viewer-close { position: absolute; top: 20px; right: 20px; background: rgba(255,255,255,0.2); border-radius: 50%; min-width: 50px; min-height: 50px; display: flex; align-items: center; justify-content: center; z-index: 100000; color: #fff; font-size: 32px; border: none; cursor: pointer; }
 .clickable-photo:hover { opacity: 0.85; transform: scale(1.05); transition: all 0.15s ease; cursor: pointer; }
+.client-photo { width: 200px; height: 200px; max-width: 200px; max-height: 200px; object-fit: cover; border-radius: 12px; display: block; cursor: pointer; margin: 6px 0; }
 
 /* === FORMS === */
 input,select,textarea { display:block; width:100%; min-width:0; border:1px solid #e5d7df; border-radius:10px; padding:11px 12px; min-height:44px; background:#fff; color:var(--text); outline:none; }
@@ -923,8 +924,8 @@ body #dailyDialog,body #returnDialog { padding:18px; width:calc(100vw - 24px); b
 </div>
 </div>
 
-<script src="/app.js?v=20261026-v6"></script>
-<script src="/vendas.js?v=20261026-v6"></script>
+<script src="/app.js?v=20261026-v7"></script>
+<script src="/vendas.js?v=20261026-v7"></script>
 <script>
 (() => {
 const sidebar = document.getElementById("sidebar");
