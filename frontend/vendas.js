@@ -1940,3 +1940,30 @@
     if (!refreshBusy) refreshData({ silent: true });
   }
 })();
+
+async function removeCancelledSales() {
+  if (!confirm("Remover permanentemente todas as vendas canceladas do historico? Esta acao nao pode ser desfeita.")) return;
+  try {
+    const result = await api("/api/sales/cancelled", { method: "DELETE" });
+    alert(result.message || "Vendas canceladas removidas.");
+    if (typeof refreshSales === "function") await refreshSales();
+    else if (typeof loadSales === "function") await loadSales();
+    else location.reload();
+  } catch (e) { alert("Erro: " + e.message); }
+}
+
+if (document.readyState !== "loading") mountRemoveCancelledBtn();
+else document.addEventListener("DOMContentLoaded", mountRemoveCancelledBtn);
+function mountRemoveCancelledBtn() {
+  if (document.getElementById("removeCancelledBtn")) return;
+  const host = document.querySelector("#vendas .filters, #vendas .panel-heading, #salesFilters, .sales-filters");
+  if (!host) return;
+  const b = document.createElement("button");
+  b.id = "removeCancelledBtn";
+  b.type = "button";
+  b.className = "btn danger btn-sm";
+  b.textContent = "Remover Canceladas";
+  b.style.marginLeft = "8px";
+  b.onclick = removeCancelledSales;
+  host.appendChild(b);
+}
