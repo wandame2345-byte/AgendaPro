@@ -1670,95 +1670,265 @@ app.get('/api/reports/pdf', auth, requireAdmin, asyncHandler(async (req, res) =>
     'Content-Disposition',
     `attachment; filename="Relatorio_${safeName}.pdf"`
   );
-  const doc = new PDFDocument({ size: 'A4', margin: 40 });
+  const doc = new PDFDocument({ size: 'A4', margin: 0 });
   doc.on('error', error => {
     console.error('Erro no PDF:', error);
     res.destroy();
   });
   doc.pipe(res);
+
+  // Cores do tema AgendaPro
+  const colors = {
+    primary: '#a94f6e',
+    primaryDark: '#903e5a',
+    bg: '#f8f5f6',
+    cardBg: '#ffffff',
+    text: '#332b35',
+    muted: '#81747d',
+    border: '#eadfe4',
+    success: '#267554',
+    danger: '#b54654',
+    headerBg: '#a94f6e',
+    headerText: '#ffffff',
+    tableHeader: '#f2e0e8',
+    tableHeaderText: '#8d405e',
+    tableBorder: '#eadfe4',
+    tableAlt: '#fdfafb'
+  };
+
   const currency = value =>
     'R$ ' + Number(value).toFixed(2).replace('.', ',');
   const formatted = value =>
     String(value).slice(0, 10).split('-').reverse().join('/');
-  doc.fontSize(20).text('AgendaPro');
-  doc.fontSize(11).text('Atendimentos e vendas de produtos');
-  doc.moveDown();
-  doc.fontSize(13).text(report.label);
-  doc.moveDown();
-  doc.fontSize(10).text(
-    'Atendimentos não cancelados: ' + currency(report.serviceRevenue)
-  );
-  doc.text('Vendas confirmadas: ' + currency(report.productRevenue));
-  doc.text('Total combinado: ' + currency(report.revenue));
-  doc.text(
-    `Atendimentos: ${report.count} | Realizados: ${report.attended} | ` +
-    `Pendentes: ${report.pending} | Cancelados: ${report.canceled}`
-  );
-  doc.text('Vendas confirmadas: ' + report.salesCount);
-  doc.text('Ticket médio dos atendimentos: ' + currency(report.ticket));
-  doc.moveDown();
-  doc.fontSize(13).text('Procedimentos');
-  doc.fontSize(10);
-  const counts = {};
-  for (const item of report.data.filter(row => row.status !== 'Cancelado')) {
-    counts[item.procedimento] = (counts[item.procedimento] || 0) + 1;
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+  const margin = 40;
+  const contentWidth = pageWidth - margin * 2;
+
+  function drawHeader(doc) {
+    doc.save();
+    doc.rect(0, 0, pageWidth, 80).fill(colors.headerBg);
+    doc.fillColor(colors.headerText);
+    doc.fontSize(24).font('Helvetica-Bold');
+    doc.text('✂ AgendaPro', margin, 22, { width: contentWidth });
+    doc.fontSize(11).font('Helvetica');
+    doc.text('Relatório de Atendimentos e Vendas', margin, 52, { width: contentWidth });
+    doc.restore();
   }
-  for (const [name, count] of Object.entries(counts)) {
-    doc.text(`${name}: ${count}`);
-  }
-  doc.moveDown();
-  doc.fontSize(13).text('Atendimentos');
-  doc.moveDown(0.5);
-  if (!report.data.length) {
-    doc.fontSize(10).text('Nenhum atendimento no período.');
-  }
-  for (const item of report.data) {
-    if (doc.y > 680) doc.addPage();
-    doc.fontSize(10).text(item.cliente);
-    doc.fontSize(9).text(
-      `${formatted(item.data)} às ${String(item.hora).slice(0, 5)} | ` +
-      `${item.telefone || '-'}`
-    );
-    doc.text(
-      `${item.procedimento} | ${currency(item.valor)} | ${item.status}`
-    );
-    doc.text(
-      'Observação: ' +
-      (item.observacao || item.cliente_observacao || '-')
-    );
-    doc.moveDown();
-  }
-  doc.addPage();
-  doc.fontSize(16).text('Vendas de produtos');
-  doc.moveDown();
-  if (!report.sales.length) {
-    doc.fontSize(10).text('Nenhuma venda no período.');
-  }
-  for (const sale of report.sales) {
-    if (doc.y > 660) doc.addPage();
-    doc.fontSize(11).text(`Venda ${sale.id} - ${sale.name}`);
-    doc.fontSize(9).text(
-      `${formatted(sale.date)} | ${sale.phone} | ${sale.status}`
-    );
-    for (const item of sale.items) {
-      if (doc.y > 720) doc.addPage();
-      doc.text(
-        `${item.name} | ${item.quantity} x ${currency(item.unitPrice)} ` +
-        `= ${currency(item.total)}`
-      );
-    }
-    doc.text('Total da venda: ' + currency(sale.total));
-    doc.text('Observação: ' + (sale.note || '-'));
-    doc.moveDown();
-  }
-  doc.fontSize(7).text(
-    'Gerado em ' +
-    new Date().toLocaleString('pt-BR', {
+
+  function drawFooter(doc, pageNum) {
+    doc.save();
+    doc.rect(0, pageHeight - 30, pageWidth, 30).fill(colors.bg);
+    doc.fillColor(colors.muted);
+    doc.fontSize(8).font('Helvetica');
+    const generatedAt = new Date().toLocaleString('pt-BR', {
       timeZone: 'America/Sao_Paulo'
-    })
+    });
+    doc.text(`Gerado em ${generatedAt}`, margin, pageHeight - 22, { width: contentWidth / 2 });
+    doc.text(`Página ${pageNum}`, pageWidth / 2, pageHeight - 22, {
+      width: contentWidth / 2,
+      align: 'right'
+    });
+    doc.restore();
+  }
+
+  function ensureSpace(doc, needed, pageNum) {
+    if (doc.y + needed > pageHeight - 40) {
+      drawFooter(doc, pageNum.value);
+      doc.addPage();
+      pageNum.value++;
+      drawHeader(doc);
+      doc.y = 95;
+    }
+  }
+
+  function drawSectionTitle(doc, title) {
+    doc.moveDown(0.8);
+    doc.save();
+    doc.rect(margin, doc.y, contentWidth, 24).fill(colors.tableHeader);
+    doc.fillColor(colors.tableHeaderText);
+    doc.fontSize(12).font('Helvetica-Bold');
+    doc.text(title, margin + 10, doc.y + 6, { width: contentWidth - 20 });
+    doc.restore();
+    doc.y += 30;
+  }
+
+  function drawMetricCard(doc, x, y, w, label, value, highlight = false) {
+    doc.save();
+    doc.roundedRect(x, y, w, 55, 6).fill(highlight ? colors.primary : colors.cardBg);
+    if (!highlight) {
+      doc.strokeColor(colors.border).lineWidth(0.5);
+      doc.roundedRect(x, y, w, 55, 6).stroke();
+    }
+    doc.fillColor(highlight ? '#ffffff' : colors.muted);
+    doc.fontSize(8).font('Helvetica');
+    doc.text(label.toUpperCase(), x + 10, y + 10, { width: w - 20 });
+    doc.fillColor(highlight ? '#ffffff' : colors.text);
+    doc.fontSize(16).font('Helvetica-Bold');
+    doc.text(value, x + 10, y + 28, { width: w - 20 });
+    doc.restore();
+  }
+
+  function drawTableRow(doc, cols, widths, isHeader = false, isAlt = false, pageNum) {
+    const rowHeight = isHeader ? 22 : 20;
+    ensureSpace(doc, rowHeight, pageNum);
+    const startY = doc.y;
+    doc.save();
+    if (isHeader) {
+      doc.rect(margin, startY, contentWidth, rowHeight).fill(colors.tableHeader);
+      doc.fillColor(colors.tableHeaderText);
+      doc.font('Helvetica-Bold').fontSize(8);
+    } else {
+      if (isAlt) {
+        doc.rect(margin, startY, contentWidth, rowHeight).fill(colors.tableAlt);
+      }
+      doc.fillColor(colors.text);
+      doc.font('Helvetica').fontSize(8);
+    }
+    let xPos = margin;
+    for (let i = 0; i < cols.length; i++) {
+      const align = i === cols.length - 1 && !isHeader ? 'right' : 'left';
+      const padding = 6;
+      doc.text(String(cols[i] || ''), xPos + padding, startY + 6, {
+        width: widths[i] - padding * 2,
+        align,
+        lineBreak: false
+      });
+      xPos += widths[i];
+    }
+    if (!isHeader) {
+      doc.strokeColor(colors.tableBorder).lineWidth(0.3);
+      doc.moveTo(margin, startY + rowHeight).lineTo(margin + contentWidth, startY + rowHeight).stroke();
+    }
+    doc.restore();
+    doc.y = startY + rowHeight;
+  }
+
+  // Página inicial
+  const pageNum = { value: 1 };
+  drawHeader(doc);
+  doc.y = 95;
+
+  // Título do relatório
+  doc.fillColor(colors.text);
+  doc.fontSize(18).font('Helvetica-Bold');
+  doc.text(report.label, margin, doc.y, { width: contentWidth, align: 'center' });
+  doc.fontSize(10).font('Helvetica').fillColor(colors.muted);
+  doc.text(
+    `Período: ${formatted(report.start)} a ${formatted(report.end)}`,
+    margin, doc.y + 4, { width: contentWidth, align: 'center' }
   );
-  doc.end();
-}));
+  doc.y += 35;
+
+  // Cards de resumo financeiro
+  const cardW = (contentWidth - 15) / 3;
+  const cardY = doc.y;
+  drawMetricCard(doc, margin, cardY, cardW, 'Atendimentos', currency(report.serviceRevenue));
+  drawMetricCard(doc, margin + cardW + 7.5, cardY, cardW, 'Vendas', currency(report.productRevenue));
+  drawMetricCard(doc, margin + (cardW + 7.5) * 2, cardY, cardW, 'Total Geral', currency(report.revenue), true);
+  doc.y = cardY + 65;
+
+  // Métricas secundárias
+  const metricCardW = (contentWidth - 20) / 4;
+  const metricY = doc.y;
+  const metrics = [
+    { label: 'Atendimentos', value: String(report.count) },
+    { label: 'Realizados', value: String(report.attended) },
+    { label: 'Ticket Médio', value: currency(report.ticket) },
+    { label: 'Vendas', value: String(report.salesCount) }
+  ];
+  for (let i = 0; i < metrics.length; i++) {
+    const mx = margin + i * (metricCardW + 6.67);
+    doc.save();
+    doc.roundedRect(mx, metricY, metricCardW, 42, 5).fill(colors.bg);
+    doc.strokeColor(colors.border).lineWidth(0.3);
+    doc.roundedRect(mx, metricY, metricCardW, 42, 5).stroke();
+    doc.fillColor(colors.muted).fontSize(7).font('Helvetica');
+    doc.text(metrics[i].label.toUpperCase(), mx + 8, metricY + 8, { width: metricCardW - 16 });
+    doc.fillColor(colors.text).fontSize(13).font('Helvetica-Bold');
+    doc.text(metrics[i].value, mx + 8, metricY + 22, { width: metricCardW - 16 });
+    doc.restore();
+  }
+  doc.y = metricY + 52;
+
+  // Status breakdown
+  doc.moveDown(0.5);
+  doc.fillColor(colors.muted).fontSize(8).font('Helvetica');
+  doc.text(
+    `Status: ${report.attended} realizados · ${report.pending} pendentes · ${report.canceled} cancelados`,
+    margin, doc.y, { width: contentWidth, align: 'center' }
+  );
+  doc.y += 18;
+
+  // Procedimentos mais realizados
+  const procCounts = {};
+  for (const item of report.data.filter(row => row.status !== 'Cancelado')) {
+    procCounts[item.procedimento] = (procCounts[item.procedimento] || 0) + 1;
+  }
+  const procEntries = Object.entries(procCounts).sort((a, b) => b[1] - a[1]);
+  if (procEntries.length) {
+    drawSectionTitle(doc, 'PROCEDIMENTOS MAIS REALIZADOS');
+    const maxCount = procEntries[0]?.[1] || 1;
+    for (const [name, count] of procEntries.slice(0, 8)) {
+      ensureSpace(doc, 22, pageNum);
+      doc.save();
+      doc.fillColor(colors.text).fontSize(9).font('Helvetica');
+      doc.text(name, margin + 8, doc.y + 4, { width: contentWidth - 80, lineBreak: false });
+      doc.fillColor(colors.primary).fontSize(9).font('Helvetica-Bold');
+      doc.text(String(count), margin + contentWidth - 60, doc.y + 4, { width: 30, align: 'right', lineBreak: false });
+      // Barra de progresso
+      const barW = ((contentWidth - 100) * count) / maxCount;
+      doc.rect(margin + 8, doc.y + 16, barW, 3).fill(colors.primary);
+      doc.rect(margin + 8 + barW, doc.y + 16, (contentWidth - 100) - barW, 3).fill(colors.border);
+      doc.restore();
+      doc.y += 24;
+    }
+  }
+
+  // Tabela de atendimentos
+  drawSectionTitle(doc, 'DETALHAMENTO DOS ATENDIMENTOS');
+  const apptCols = ['Data/Hora', 'Cliente', 'Telefone', 'Procedimento', 'Valor', 'Status'];
+  const apptWidths = [70, 140, 80, 130, 55, contentWidth - 70 - 140 - 80 - 130 - 55];
+  drawTableRow(doc, apptCols, apptWidths, true, false, pageNum);
+
+  if (!report.data.length) {
+    ensureSpace(doc, 25, pageNum);
+    doc.fillColor(colors.muted).fontSize(9).font('Helvetica-Oblique');
+    doc.text('Nenhum atendimento registrado neste período.', margin + 10, doc.y + 8, { width: contentWidth - 20 });
+    doc.y += 25;
+  } else {
+    let rowIndex = 0;
+    for (const item of report.data) {
+      const dateStr = `${formatted(item.data)} ${String(item.hora).slice(0, 5)}`;
+      const statusLabel = item.status === 'Atendido' ? '✓ Realizado' :
+        item.status === 'Cancelado' ? '✗ Cancelado' : item.status;
+      drawTableRow(doc, [dateStr, item.cliente, item.telefone || '-', item.procedimento, currency(item.valor), statusLabel], apptWidths, false, rowIndex % 2 === 1, pageNum);
+      rowIndex++;
+    }
+  }
+
+  // Vendas de produtos
+  if (report.sales.length) {
+    ensureSpace(doc, 60, pageNum);
+    drawSectionTitle(doc, 'VENDAS DE PRODUTOS');
+    const saleCols = ['Data', 'Cliente', 'Itens', 'Total', 'Status'];
+    const saleWidths = [65, 130, 170, 65, contentWidth - 65 - 130 - 170 - 65];
+    drawTableRow(doc, saleCols, saleWidths, true, false, pageNum);
+
+    let saleIndex = 0;
+    for (const sale of report.sales) {
+      const itemsSummary = sale.items && sale.items.length
+        ? sale.items.map(i => `${i.quantity}x ${i.name}`).join(', ').slice(0, 60)
+        : '-';
+      drawTableRow(doc, [formatted(sale.date), sale.name, itemsSummary, currency(sale.total), sale.status], saleWidths, false, saleIndex % 2 === 1, pageNum);
+      saleIndex++;
+    }
+  } else {
+    ensureSpace(doc, 40, pageNum);
+    drawSectionTitle(doc, 'VENDAS DE PRODUTOS');
+    doc.fillColor(colors.muted).fontSize(9).font('Helvetica-Oblique');
+    doc.text('Nenhuma venda registrada neste período.', margin + 10, doc.y + 8, { width: contentWidth - 20 });
+    doc.y
 // =====================================================
 // FRONTEND E ERROS
 // =====================================================
