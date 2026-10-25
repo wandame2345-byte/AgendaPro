@@ -88,7 +88,7 @@ background:white; color:var(--text); font-size:12px; font-weight:600; cursor:poi
 
 .booking-hero-big { text-align: center; margin-bottom: 30px; }
 .big-title { font-size: 42px; font-weight: 800; color: var(--primary); margin: 10px 0; letter-spacing: -1px; }
-.role-option-big { padding: 24px; margin-top: 15px; display:flex; align-items:center; gap:14px; text-align:left; width:100%; background:white; border:1px solid var(--border); border-radius:14px; color:var(--text); cursor:pointer; transition:all .2s; }
+.role-option-big { padding: 24px; margin-top: 15px; display:flex; align-items:center; gap:14px; text-align:left; width:100%; background:var(--card); border:1px solid var(--border); border-radius:14px; color:var(--text); cursor:pointer; transition:all .2s; }
 .role-option-big:hover { border-color:#c47c96; background:#fff9fc; transform:translateX(4px); }
 .role-option-big strong { display:block; font-size:18px; }
 .role-option-big small { display:block; color:var(--muted); margin-top:3px; }
@@ -259,10 +259,16 @@ html[data-theme="dark"] .big-title { color: #f0a6c2 !important; }
 html[data-theme="dark"] :is(.muted,.small,.label,.empty,.authSub,.auth-subtitle,.subtitle,.top p,.section-heading p,small,#futureCount,#returnClientLabel, .auth-note, .auth-benefits) { color:#bbc2d0!important; }
 html[data-theme="dark"] :is(.role-btn,.roleBtn,.role-card,.role-option,.role-button,.notification-bell,.theme-toggle, .btn-access-sm) { background:#252d3a!important; color:#edf0f7!important; border-color:#505d73!important; }
 /* Specific override for role-option-big to ensure dark background */
-html[data-theme="dark"] .role-option-big { background:#252d3a!important; color:#edf0f7!important; border-color:#505d73!important; }
-html[data-theme="dark"] .role-option-big strong { color:#edf0f7!important; }
-html[data-theme="dark"] .role-option-big small { color:#bbc2d0!important; }
-html[data-theme="dark"] .role-option-big .role-icon { background:#30394a!important; }
+html[data-theme="dark"] button.role-option-big,
+html[data-theme="dark"] .role-option-big {
+  background-color: #252d3a !important;
+  color: #edf0f7 !important;
+  border-color: #505d73 !important;
+}
+html[data-theme="dark"] .role-option-big strong { color: #edf0f7 !important; }
+html[data-theme="dark"] .role-option-big small { color: #bbc2d0 !important; }
+html[data-theme="dark"] .role-option-big .role-icon { background-color: #30394a !important; color: #edf0f7 !important; }
+html[data-theme="dark"] .auth-shell { background-color: #1c222d !important; }
 html[data-theme="dark"] .btn-access-sm:hover, html[data-theme="dark"] .theme-toggle:hover, html[data-theme="dark"] .role-option-big:hover { background:#30394a!important; border-color:#f0a6c2!important; }
 html[data-theme="dark"] :is(input,select,textarea) { background:#141a24!important; color:#edf0f7!important; border-color:#59657b!important; }
 html[data-theme="dark"] :is(input,textarea)::placeholder { color:#a8b3c7!important; opacity:1; }
