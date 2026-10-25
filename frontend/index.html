@@ -1138,6 +1138,43 @@ html[data-theme="dark"] .auth-content h2 {
   pointer-events: auto !important;
 }
 
+
+/* === CORREÇÃO CRÍTICA: CLIQUES E TEMA === */
+.modal:not(.show), 
+.photo-viewer-modal:not(.show),
+#photoViewer:not(.show) {
+  display: none !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
+/* Garantir que o botão de tema fique acima de tudo */
+.theme-auth {
+  position: absolute !important;
+  top: 20px !important;
+  right: 20px !important;
+  z-index: 99999 !important;
+  pointer-events: auto !important;
+}
+
+/* Garantir que os botões de role-option sejam clicáveis */
+.role-option, .role-option-big, .btn-access-sm {
+  position: relative;
+  z-index: 10;
+  pointer-events: auto !important;
+  cursor: pointer !important;
+}
+
+/* Ajuste para o container de auth não bloquear */
+#authScreen {
+  position: relative;
+  z-index: 1;
+}
+.auth-content {
+  position: relative;
+  z-index: 2;
+}
+
 </style>
 </head>
 
