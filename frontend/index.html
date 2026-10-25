@@ -926,6 +926,103 @@
         scroll-behavior:auto!important;
       }
     }
+  
+    .auth-top-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      margin-bottom: 20px;
+    }
+    .btn-access-sm {
+      padding: 8px 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: white;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-access-sm:hover {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+    .booking-hero-big {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    .big-title {
+      font-size: 42px;
+      font-weight: 800;
+      color: var(--primary);
+      margin: 10px 0;
+      letter-spacing: -1px;
+    }
+    .role-option-big {
+      padding: 24px;
+      margin-top: 15px;
+    }
+    .role-option-big strong {
+      font-size: 18px;
+    }
+    /* Página de Compras */
+    #comprasPage {
+      display: none;
+      min-height: 100dvh;
+      background: radial-gradient(ellipse at top,#f6e5ed,transparent 65%), var(--bg);
+    }
+    .product-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 20px;
+      margin-top: 20px;
+    }
+    .product-card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      padding: 20px;
+      text-align: center;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .product-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    }
+    .product-card img {
+      width: 100%;
+      height: 180px;
+      object-fit: cover;
+      border-radius: 10px;
+      margin-bottom: 15px;
+    }
+    .product-card h3 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      color: var(--text);
+    }
+    .product-card .price {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 15px;
+    }
+    .cart-summary {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: var(--primary);
+      color: white;
+      padding: 15px 25px;
+      border-radius: 50px;
+      box-shadow: 0 5px 20px rgba(169, 79, 110, 0.4);
+      cursor: pointer;
+      z-index: 100;
+      display: none;
+    }
+
   </style>
 </head>
 
@@ -957,33 +1054,33 @@
       </div>
 
       <div class="auth-content">
+        <!-- Botões Admin/Funcionário no topo -->
+        <div class="auth-top-actions">
+          <button type="button" class="btn-access-sm" onclick="selectRole('admin')">👑 Admin</button>
+          <button type="button" class="btn-access-sm" onclick="selectRole('funcionario')">👤 Funcionário</button>
+        </div>
+
         <div id="roleSelect">
-          <h2>Bem-vindo ao AgendaPro</h2>
-          <p>Escolha como deseja entrar.</p>
+          <div class="booking-hero-big">
+            <div class="eyebrow">Agendamento Online</div>
+            <h1 class="big-title">Agendamento</h1>
+            <p>Clique abaixo para agendar seu horário ou comprar produtos.</p>
+          </div>
 
-          <button type="button" class="role-option" onclick="selectRole('admin')">
-            <span class="role-icon" aria-hidden="true">👑</span>
-            <span>
-              <strong>Administrador</strong>
-              <small>Gestão completa do salão</small>
-            </span>
-            <span class="role-arrow" aria-hidden="true">›</span>
-          </button>
-
-          <button type="button" class="role-option" onclick="selectRole('funcionario')">
-            <span class="role-icon" aria-hidden="true">👤</span>
-            <span>
-              <strong>Funcionário</strong>
-              <small>Agenda, clientes e atendimentos</small>
-            </span>
-            <span class="role-arrow" aria-hidden="true">›</span>
-          </button>
-
-          <button type="button" class="role-option" onclick="selectRole('cliente')">
+          <button type="button" class="role-option role-option-big" onclick="selectRole('cliente')">
             <span class="role-icon" aria-hidden="true">📅</span>
             <span>
-              <strong>Sou cliente</strong>
-              <small>Quero agendar meu horário</small>
+              <strong>Agendar Horário</strong>
+              <small>Escolha procedimento, data e hora</small>
+            </span>
+            <span class="role-arrow" aria-hidden="true">›</span>
+          </button>
+
+          <button type="button" class="role-option role-option-big" onclick="selectRole('compras')">
+            <span class="role-icon" aria-hidden="true">🛍️</span>
+            <span>
+              <strong>Comprar Produtos</strong>
+              <small>Veja nosso catálogo e faça seu pedido</small>
             </span>
             <span class="role-arrow" aria-hidden="true">›</span>
           </button>
@@ -1904,6 +2001,69 @@
   </div>
 
   <!-- ORDEM NECESSÁRIA: APP PRIMEIRO, VENDAS DEPOIS -->
+
+  
+  <!-- PÁGINA DE COMPRAS -->
+  <div id="comprasPage">
+    <header class="booking-header">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">✂</div>
+        <div>Agenda<span>Pro</span></div>
+      </div>
+      <button type="button" class="btn secondary btn-sm" onclick="logout()">
+        Voltar ao início
+      </button>
+    </header>
+    <main class="booking-main">
+      <div class="booking-hero">
+        <div class="eyebrow">Loja Virtual</div>
+        <h1>Nossos Produtos</h1>
+        <p>Escolha seus produtos favoritos e finalize a compra.</p>
+      </div>
+      
+      <div id="productsList" class="product-grid">
+        <!-- Produtos serão carregados aqui via JS -->
+        <div class="empty">Carregando produtos...</div>
+      </div>
+
+      <div id="cartSummary" class="cart-summary" onclick="openCartModal()">
+        🛒 Ver Carrinho (<span id="cartCount">0</span>)
+      </div>
+    </main>
+  </div>
+
+  <!-- MODAL DO CARRINHO -->
+  <div id="cartModal" class="modal" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>Seu Carrinho</h2>
+        <button type="button" class="close" onclick="closeCartModal()">×</button>
+      </div>
+      <div id="cartItems" style="max-height: 400px; overflow-y: auto; margin-bottom: 20px;">
+        <p class="empty">Seu carrinho está vazio.</p>
+      </div>
+      <div style="border-top: 1px solid var(--border); padding-top: 15px; margin-bottom: 15px;">
+        <div style="display: flex; justify-content: space-between; font-size: 18px; font-weight: bold;">
+          <span>Total:</span>
+          <span id="cartTotal">R$ 0,00</span>
+        </div>
+      </div>
+      <form id="checkoutForm" class="form">
+        <div class="field full">
+          <label for="checkoutName">Nome Completo</label>
+          <input id="checkoutName" required placeholder="Seu nome">
+        </div>
+        <div class="field full">
+          <label for="checkoutPhone">WhatsApp</label>
+          <input id="checkoutPhone" type="tel" required placeholder="(00) 9 0000-0000">
+        </div>
+        <div class="form-actions full">
+          <button type="button" class="btn secondary" onclick="closeCartModal()">Continuar Comprando</button>
+          <button type="submit" class="btn primary">Finalizar Compra</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <script src="/app.js?v=20260930-vendas"></script>
   <script src="/vendas.js?v=20260930-1"></script>
