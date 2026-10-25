@@ -777,24 +777,46 @@ export function installSecurity(
       throw problem('Observação muito longa.');
     }
 
+    // Converter foto para Base64 (compatível com Render)
+    let photoUrl = null;
+    if (file) {
+      if (file.buffer) {
+        photoUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+      } else if (file.path) {
+        try {
+          const fs = await import('fs');
+          const fileData = fs.readFileSync(file.path);
+          photoUrl = `data:${file.mimetype};base64,${fileData.toString('base64')}`;
+          fs.unlinkSync(file.path);
+        } catch (e) {
+          console.error('Erro ao converter foto para base64:', e);
+          photoUrl = `/uploads/${file.filename}`;
+        }
+      }
+    }
+
+    // Tenta inserir ou atualizar a foto se o cliente já existir
     const result = await db.query(`
       INSERT INTO clientes(
         nome, telefone, foto_url
       )
       VALUES($1, $2, $3)
-      ON CONFLICT(telefone) DO NOTHING
+      ON CONFLICT(telefone) DO UPDATE SET
+        foto_url = COALESCE(EXCLUDED.foto_url, clientes.foto_url),
+        nome = EXCLUDED.nome,
+        updated_at = NOW()
       RETURNING *
     `, [
       name,
       phone,
-      file ? '/uploads/' + file.filename : null
+      photoUrl
     ]);
 
     if (result.rowCount) {
       return result.rows[0];
     }
 
-    // Telefone não autoriza alterar cadastro existente.
+    // Fallback de segurança (não deveria acontecer com o UPSERT acima)
     if (file?.filename) {
       await discardPhoto(file.filename);
     }
