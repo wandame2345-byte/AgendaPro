@@ -4244,6 +4244,14 @@ function mountThemeUI() {
     $("clientPage"),
     "theme-public"
   );
+  
+  // Adicionar tema na página de compras também
+  if ($("comprasPage")) {
+    addButton(
+      $("comprasPage"),
+      "theme-public"
+    );
+  }
 
   try {
     const saved = localStorage.getItem(
@@ -4602,7 +4610,7 @@ function renderProductsList(products) {
   }
   container.innerHTML = products.map(p => `
     <div class="product-card">
-      ${p.photo ? `<img src="${esc(p.photo)}" alt="${esc(p.name)}">` : '<div style="height:180px;background:#f0f0f0;border-radius:10px;margin-bottom:15px;display:flex;align-items:center;justify-content:center;color:#999">Sem foto</div>'}
+      ${p.photo ? `<img src="${esc(p.photo.startsWith('/') ? p.photo : '/' + p.photo)}" alt="${esc(p.name)}">` : '<div style="height:180px;background:#f0f0f0;border-radius:10px;margin-bottom:15px;display:flex;align-items:center;justify-content:center;color:#999">Sem foto</div>'}
       <h3>${esc(p.name)}</h3>
       <p style="color:var(--muted);font-size:13px;margin-bottom:10px">${esc(p.description || '')}</p>
       <div class="price">${money(p.price)}</div>
@@ -4751,5 +4759,7 @@ $("checkoutPhone")?.addEventListener("input", (e) => {
 
 
 mountThemeUI();
+// Garantir botão de tema no login
+if ($("authScreen")) { const host = document.createElement("div"); host.className = "theme-auth"; const btn = document.createElement("button"); btn.type="button"; btn.className="theme-toggle"; btn.onclick=()=>applyTheme(document.documentElement.dataset.theme==="dark"?"light":"dark",true); host.appendChild(btn); $("authScreen").prepend(host); }
 mountDarkContrastFix();
 boot();
