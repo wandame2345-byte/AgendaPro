@@ -4784,6 +4784,49 @@ $("checkoutPhone")?.addEventListener("input", (e) => {
 
 
 mountThemeUI();
+
+// Injeção robusta do botão de tema no login
+(function injectThemeButton() {
+  const authScreen = $("authScreen");
+  if (!authScreen) return;
+  
+  // Remove qualquer botão antigo para evitar duplicatas
+  const oldBtn = authScreen.querySelector(".theme-auth");
+  if (oldBtn) oldBtn.remove();
+
+  const host = document.createElement("div");
+  host.className = "theme-auth";
+  // Estilos inline para garantir visibilidade independente do CSS externo
+  host.style.position = "absolute";
+  host.style.top = "20px";
+  host.style.right = "20px";
+  host.style.zIndex = "99999";
+  host.style.pointerEvents = "auto";
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "theme-toggle";
+  btn.style.pointerEvents = "auto";
+  btn.style.cursor = "pointer";
+  
+  const updateText = () => {
+    btn.textContent = document.documentElement.dataset.theme === "dark" ? "☀️ Tema claro" : "🌙 Tema escuro";
+  };
+  
+  updateText();
+
+  btn.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const newTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    applyTheme(newTheme, true);
+    updateText();
+  };
+
+  host.appendChild(btn);
+  authScreen.appendChild(host);
+})();
+
 // Garantir botão de tema no login
 if ($("authScreen")) {
   const host = document.createElement("div");
