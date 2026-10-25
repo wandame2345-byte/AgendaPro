@@ -3192,15 +3192,15 @@ display:inline-flex;
 align-items:center;
 justify-content:center;
 gap:8px;
-min-height:44px;
-padding:10px 14px;
+min-height:36px;
+padding:8px 12px;
 border:1px solid var(--border,#e1cdd4);
-border-radius:12px;
+border-radius:8px;
 background:var(--card,#fff);
 color:var(--text,#372c35);
 font:inherit;
-font-size:14px;
-font-weight:650;
+font-size:12px;
+font-weight:600;
 cursor:pointer;
 }
 .theme-toggle:focus-visible {
@@ -3226,10 +3226,7 @@ padding-top:76px;
 box-sizing:border-box;
 }
 .theme-auth {
-position:absolute;
-right:18px;
-top:18px;
-z-index:2;
+/* Injected into .auth-top-bar via JS */
 }
 .booking-client-notice {
 padding:12px 14px;
@@ -3464,13 +3461,17 @@ host.appendChild(button);
 if (before) {
 parent.insertBefore(host, before);
 } else {
-parent.prepend(host);
+parent.appendChild(host);
 }
 };
-addButton(
-$("authScreen"),
-"theme-auth"
-);
+// Inject into the new top bar
+const topBar = document.querySelector(".auth-top-bar");
+if (topBar) {
+addButton(topBar, "theme-auth");
+} else {
+// Fallback for old structure if needed
+addButton($("authScreen"), "theme-auth");
+}
 const nav = document.querySelector(".nav");
 if (nav) {
 addButton(
@@ -3878,12 +3879,6 @@ alert("Preencha seu nome e WhatsApp.");
 return;
 }
 try {
-// Primeiro, garante que o cliente existe (ou cria)
-// O endpoint /api/public/bookings faz isso, mas para vendas precisamos de um endpoint público ou usar o de admin se autenticado.
-// Como o cliente não está logado como admin, precisamos de uma rota pública para vendas ou adaptar.
-// Vamos criar uma rota pública simulada ou usar a lógica existente se houver.
-// OLHO: O backend atual não tem rota pública para vendas. Vou precisar adicionar no server.js depois.
-// Por enquanto, vou simular a chamada assumindo que criaremos a rota /api/public/sales
 const payload = {
 name,
 phone,
@@ -3893,13 +3888,11 @@ quantity: item.quantity,
 unitPrice: item.price
 }))
 };
-// Chamada para a nova rota pública (que vamos criar no server.js)
 await api("/api/public/sales", {
 method: "POST",
 headers: { "Content-Type": "application/json" },
 body: JSON.stringify(payload)
 });
-// Montar mensagem com os produtos reais do carrinho
 let msg = "*Pedido de compra - AgendaPro*\n";
 cart.forEach(item => {
 msg += "- " + item.quantity + "x " + item.name + " (" + money(item.price * item.quantity) + ")\n";
@@ -3908,7 +3901,6 @@ msg += "\n*Total: " + money(cart.reduce((s, i) => s + i.price * i.quantity, 0)) 
 msg += "\nCliente: " + name;
 msg += "\nTelefone: " + phone;
 const waUrl = "https://wa.me/5585984773871?text=" + encodeURIComponent(msg);
-// Mostrar tela de sucesso no modal
 const formEl = $("checkoutForm");
 const itemsEl = $("cartItems");
 const totalEl = $("cartTotal").parentElement;
@@ -3946,40 +3938,5 @@ if (v.length > 7) formatted += "-" + v.substring(7, 11);
 e.target.value = formatted;
 });
 mountThemeUI();
-// Injeção robusta do botão de tema no login
-(function injectThemeButton() {
-const authScreen = $("authScreen");
-if (!authScreen) return;
-// Remove qualquer botão antigo para evitar duplicatas
-const oldBtn = authScreen.querySelector(".theme-auth");
-if (oldBtn) oldBtn.remove();
-const host = document.createElement("div");
-host.className = "theme-auth";
-// Estilos inline para garantir visibilidade independente do CSS externo
-host.style.position = "absolute";
-host.style.top = "20px";
-host.style.right = "20px";
-host.style.zIndex = "99999";
-host.style.pointerEvents = "auto";
-const btn = document.createElement("button");
-btn.type = "button";
-btn.className = "theme-toggle";
-btn.style.pointerEvents = "auto";
-btn.style.cursor = "pointer";
-const updateText = () => {
-btn.textContent = document.documentElement.dataset.theme === "dark" ? "☀️ Tema claro" : "🌙 Tema escuro";
-};
-updateText();
-btn.onclick = (e) => {
-e.preventDefault();
-e.stopPropagation();
-const newTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-applyTheme(newTheme, true);
-updateText();
-};
-host.appendChild(btn);
-authScreen.appendChild(host);
-})();
-// mountDarkContrastFix e boot já chamados acima - removido bloco duplicado de injeção de tema
 mountDarkContrastFix();
 boot();
