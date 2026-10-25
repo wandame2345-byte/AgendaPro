@@ -1123,56 +1123,60 @@ html[data-theme="dark"] .auth-content h2 {
 }
 
 
-/* Garantir que modais fechados não bloqueiem cliques */
-.modal:not(.show) {
-  display: none !important;
-  pointer-events: none !important;
-}
-.photo-viewer-modal:not(.show) {
-  display: none !important;
-  pointer-events: none !important;
-}
-/* Garantir que o botão de tema fique acima de tudo no login */
-.theme-auth {
-  z-index: 100 !important;
-  pointer-events: auto !important;
-}
+/* === CORREÇÃO CRÍTICA: CLIQUES E TEMA (CONSOLIDADO) === */
 
-
-/* === CORREÇÃO CRÍTICA: CLIQUES E TEMA === */
-.modal:not(.show), 
+/* Modais fechados não devem bloquear cliques */
+.modal:not(.show),
 .photo-viewer-modal:not(.show),
 #photoViewer:not(.show) {
   display: none !important;
-  pointer-events: none !important;
   visibility: hidden !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  z-index: -1 !important;
 }
 
-/* Garantir que o botão de tema fique acima de tudo */
-.theme-auth {
-  position: absolute !important;
-  top: 20px !important;
-  right: 20px !important;
-  z-index: 99999 !important;
+/* Tela de login deve estar acima de qualquer overlay residual */
+#authScreen {
+  position: relative !important;
+  z-index: 1000 !important;
   pointer-events: auto !important;
 }
 
-/* Garantir que os botões de role-option sejam clicáveis */
-.role-option, .role-option-big, .btn-access-sm {
-  position: relative;
-  z-index: 10;
+.auth-shell,
+.auth-intro,
+.auth-content {
+  position: relative !important;
+  z-index: 1001 !important;
+  pointer-events: auto !important;
+}
+
+/* Botões de acesso e opções de role devem ser sempre clicáveis */
+.role-option,
+.role-option-big,
+.btn-access-sm,
+.auth-top-actions,
+.auth-top-actions * {
+  position: relative !important;
+  z-index: 1002 !important;
   pointer-events: auto !important;
   cursor: pointer !important;
 }
 
-/* Ajuste para o container de auth não bloquear */
-#authScreen {
-  position: relative;
-  z-index: 1;
+/* Botão de tema no login */
+.theme-auth {
+  position: absolute !important;
+  top: 20px !important;
+  right: 20px !important;
+  z-index: 10000 !important;
+  pointer-events: auto !important;
 }
-.auth-content {
-  position: relative;
-  z-index: 2;
+
+.theme-auth button,
+.theme-toggle {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  z-index: 10001 !important;
 }
 
 </style>
