@@ -1102,6 +1102,42 @@ html[data-theme="dark"] .auth-content h2 {
   color: #f1f5f9 !important;
 }
 
+
+/* Ajuste para o botão de tema na tela de login */
+.theme-auth {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 10;
+}
+.auth-top-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-bottom: 20px;
+  margin-right: 60px; /* Espaço para o botão de tema não sobrepor */
+}
+@media(max-width: 600px) {
+  .theme-auth { top: 10px; right: 10px; }
+  .auth-top-actions { margin-right: 0; margin-top: 40px; justify-content: center; }
+}
+
+
+/* Garantir que modais fechados não bloqueiem cliques */
+.modal:not(.show) {
+  display: none !important;
+  pointer-events: none !important;
+}
+.photo-viewer-modal:not(.show) {
+  display: none !important;
+  pointer-events: none !important;
+}
+/* Garantir que o botão de tema fique acima de tudo no login */
+.theme-auth {
+  z-index: 100 !important;
+  pointer-events: auto !important;
+}
+
 </style>
 </head>
 
