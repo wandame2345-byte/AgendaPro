@@ -290,24 +290,27 @@
       ['salonStart', 'salonEnd', 'salonClientFilter', 'salonProductFilter', 'salonStatusFilter'].forEach(id => byId(id).value = '');
       renderHistory();
     };
-    // Botão Remover Canceladas
-    const filterHost = document.querySelector('#salonSales .salon-filters');
-    if (filterHost && !document.getElementById('removeCancelledBtn')) {
-      const btnRm = document.createElement('button');
-      btnRm.id = 'removeCancelledBtn';
-      btnRm.type = 'button';
-      btnRm.className = 'btn danger btn-sm';
-      btnRm.textContent = '🗑️ Remover Canceladas';
-      btnRm.onclick = async () => {
-        if (!confirm('Remover permanentemente todas as vendas canceladas? Esta ação não pode ser desfeita.')) return;
-        try {
-          const res = await api('/api/sales/cancelled', { method: 'DELETE' });
-          alert(res.message || 'Vendas canceladas removidas com sucesso.');
-          await refreshData();
-        } catch (e) { alert('Erro: ' + e.message); }
-      };
-      filterHost.appendChild(btnRm);
-    }
+    // Botão Remover Canceladas - Injeção com delay para garantir renderização
+    setTimeout(() => {
+      const filterHost = document.querySelector('#salonSales .salon-filters');
+      if (filterHost && !document.getElementById('removeCancelledBtn')) {
+        const btnRm = document.createElement('button');
+        btnRm.id = 'removeCancelledBtn';
+        btnRm.type = 'button';
+        btnRm.className = 'btn danger btn-sm';
+        btnRm.textContent = '🗑️ Remover Canceladas';
+        btnRm.style.marginLeft = '8px';
+        btnRm.onclick = async () => {
+          if (!confirm('Remover permanentemente todas as vendas canceladas? Esta ação não pode ser desfeita.')) return;
+          try {
+            const res = await api('/api/sales/cancelled', { method: 'DELETE' });
+            alert(res.message || 'Vendas canceladas removidas com sucesso.');
+            await refreshData();
+          } catch (e) { alert('Erro: ' + e.message); }
+        };
+        filterHost.appendChild(btnRm);
+      }
+    }, 800);
     byId('salonProductForm').onsubmit = saveProduct;
     byId('salonSaleForm').onsubmit = saveSale;
     byId('salonEditForm').onsubmit = saveEdit;
