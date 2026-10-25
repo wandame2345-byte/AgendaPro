@@ -931,6 +931,27 @@ app.patch('/api/appointments/:id/status', auth, asyncHandler(async (req, res) =>
 // =====================================================
 const MAX_APPOINTMENTS_PER_SLOT = 3;
 
+
+// =====================================================
+// PRODUTOS PÚBLICOS (LOJA VIRTUAL)
+// =====================================================
+app.get('/api/public/products', asyncHandler(async (req, res) => {
+  const result = await pool.query(`
+    SELECT id, nome, descricao, foto_url, preco
+    FROM produtos
+    WHERE ativo = TRUE
+    ORDER BY nome
+  `);
+  res.set('Cache-Control', 'no-store');
+  res.json(result.rows.map(row => ({
+    id: row.id,
+    name: row.nome,
+    description: row.descricao || '',
+    photo: row.foto_url || null,
+    price: Number(row.preco)
+  })));
+}));
+
 app.get('/api/public/slots', asyncHandler(async (req, res) => {
   const date = validDate(req.query.date);
   const settings = await readOpeningHours();
