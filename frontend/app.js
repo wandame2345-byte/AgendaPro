@@ -3709,11 +3709,15 @@ $("cbPhone").placeholder = "(00) 9 0000-0000";
 $("cbPhone").addEventListener("input", (e) => {
   let v = e.target.value.replace(/\D/g, "");
   if (v.length > 11) v = v.slice(0, 11);
-  if (v.length > 0) v = "(" + v;
-  if (v.length > 3) v = v.slice(0, 3) + ") " + v.slice(3);
-  if (v.length > 7) v = v.slice(0, 7) + " " + v.slice(7);
-  if (v.length > 12) v = v.slice(0, 12) + "-" + v.slice(12);
-  e.target.value = v;
+  
+  let formatted = "";
+  if (v.length > 0) formatted += "(" + v.substring(0, 2);
+  if (v.length >= 2) formatted += ") ";
+  if (v.length > 2) formatted += v.substring(2, 3);
+  if (v.length > 3) formatted += " " + v.substring(3, 7);
+  if (v.length > 7) formatted += "-" + v.substring(7, 11);
+  
+  e.target.value = formatted;
 });
 
 $("clientBookingForm").addEventListener(
