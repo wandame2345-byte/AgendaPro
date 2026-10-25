@@ -23,6 +23,7 @@ let toastTimer = null;
 let appointmentSaving = false;
 let publicBookingSaving = false;
 let bookingClientId = null;
+let cart = [];
 
 const $ = id => document.getElementById(id);
 
@@ -418,6 +419,11 @@ function selectRole(role) {
     enterApp();
     return;
   }
+  if (role === "compras") {
+    currentUser = { role: "compras" };
+    enterApp();
+    return;
+  }
 
   pendingRole = role;
 
@@ -526,12 +532,21 @@ function enterApp() {
   if (currentUser.role === "cliente") {
     $("app").style.display = "none";
     $("clientPage").style.display = "block";
-
+    if ($("comprasPage")) $("comprasPage").style.display = "none";
     initClientPage();
     return;
   }
 
+  if (currentUser.role === "compras") {
+    $("app").style.display = "none";
+    $("clientPage").style.display = "none";
+    if ($("comprasPage")) $("comprasPage").style.display = "block";
+    initComprasPage();
+    return;
+  }
+
   $("clientPage").style.display = "none";
+  if ($("comprasPage")) $("comprasPage").style.display = "none";
   $("app").style.display = "flex";
 
   initAdminApp();
@@ -4563,6 +4578,177 @@ async function boot() {
     $("authScreen").style.display = "flex";
   }
 }
+
+
+// =====================================================
+// COMPRAS DE PRODUTOS (CLIENTE)
+// =====================================================
+async function initComprasPage() {
+  try {
+    const products = await api("/api/products");
+    renderProductsList(products);
+  } catch (error) {
+    alert(error.message);
+  }
+  cart = [];
+  updateCartUI();
+}
+
+function renderProductsList(products) {
+  const container = $("productsList");
+  if (!products.length) {
+    container.innerHTML = '<div class="empty">Nenhum produto disponível no momento.</div>';
+    return;
+  }
+  container.innerHTML = products.map(p => `
+    <div class="product-card">
+      ${p.photo ? `<img src="${esc(p.photo)}" alt="${esc(p.name)}">` : '<div style="height:180px;background:#f0f0f0;border-radius:10px;margin-bottom:15px;display:flex;align-items:center;justify-content:center;color:#999">Sem foto</div>'}
+      <h3>${esc(p.name)}</h3>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:10px">${esc(p.description || '')}</p>
+      <div class="price">${money(p.price)}</div>
+      <button type="button" class="btn primary full-width" onclick="addToCart(${idArgument(p.id)}, '${esc(p.name)}', ${p.price})">
+        Adicionar ao Carrinho
+      </button>
+    </div>
+  `).join("");
+}
+
+function addToCart(id, name, price) {
+  const existing = cart.find(item => item.productId === id);
+  if (existing) {
+    existing.quantity++;
+  } else {
+    cart.push({ productId: id, name, price, quantity: 1 });
+  }
+  updateCartUI();
+  // Feedback visual simples
+  const btn = event.target;
+  const originalText = btn.textContent;
+  btn.textContent = "Adicionado!";
+  btn.disabled = true;
+  setTimeout(() => {
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }, 1000);
+}
+
+function updateCartUI() {
+  const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const summary = $("cartSummary");
+  const countSpan = $("cartCount");
+  const totalSpan = $("cartTotal");
+  
+  if (count > 0) {
+    summary.style.display = "block";
+    countSpan.textContent = count;
+    totalSpan.textContent = money(total);
+  } else {
+    summary.style.display = "none";
+  }
+}
+
+function openCartModal() {
+  const modal = $("cartModal");
+  const itemsContainer = $("cartItems");
+  
+  if (!cart.length) {
+    itemsContainer.innerHTML = '<p class="empty">Seu carrinho está vazio.</p>';
+  } else {
+    itemsContainer.innerHTML = cart.map((item, index) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <strong>${esc(item.name)}</strong><br>
+          <small>${money(item.price)} x ${item.quantity}</small>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-weight:bold">${money(item.price * item.quantity)}</span>
+          <button type="button" class="btn danger btn-sm" onclick="removeFromCart(${index})">Remover</button>
+        </div>
+      </div>
+    `).join("");
+  }
+  
+  const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  $("cartTotal").textContent = money(total);
+  
+  modal.classList.add("show");
+}
+
+function closeCartModal() {
+  $("cartModal").classList.remove("show");
+}
+
+function removeFromCart(index) {
+  cart.splice(index, 1);
+  updateCartUI();
+  openCartModal(); // Re-renderiza o modal
+}
+
+$("checkoutForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!cart.length) {
+    alert("Seu carrinho está vazio.");
+    return;
+  }
+  
+  const name = $("checkoutName").value.trim();
+  const phone = $("checkoutPhone").value.replace(/\D/g, "").trim();
+  
+  if (!name || !phone) {
+    alert("Preencha seu nome e WhatsApp.");
+    return;
+  }
+  
+  try {
+    // Primeiro, garante que o cliente existe (ou cria)
+    // O endpoint /api/public/bookings faz isso, mas para vendas precisamos de um endpoint público ou usar o de admin se autenticado.
+    // Como o cliente não está logado como admin, precisamos de uma rota pública para vendas ou adaptar.
+    // Vamos criar uma rota pública simulada ou usar a lógica existente se houver.
+    // OLHO: O backend atual não tem rota pública para vendas. Vou precisar adicionar no server.js depois.
+    // Por enquanto, vou simular a chamada assumindo que criaremos a rota /api/public/sales
+    
+    const payload = {
+      name,
+      phone,
+      items: cart.map(item => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        unitPrice: item.price
+      }))
+    };
+    
+    // Chamada para a nova rota pública (que vamos criar no server.js)
+    await api("/api/public/sales", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    
+    alert("Compra realizada com sucesso! Entraremos em contato pelo WhatsApp.");
+    cart = [];
+    updateCartUI();
+    closeCartModal();
+    // Opcional: voltar para a lista de produtos
+    initComprasPage();
+  } catch (error) {
+    alert("Erro ao finalizar compra: " + error.message);
+  }
+});
+
+// Máscara para o telefone do checkout
+$("checkoutPhone")?.addEventListener("input", (e) => {
+  let v = e.target.value.replace(/\D/g, "");
+  if (v.length > 11) v = v.slice(0, 11);
+  let formatted = "";
+  if (v.length > 0) formatted += "(" + v.substring(0, 2);
+  if (v.length >= 2) formatted += ") ";
+  if (v.length > 2) formatted += v.substring(2, 3);
+  if (v.length > 3) formatted += " " + v.substring(3, 7);
+  if (v.length > 7) formatted += "-" + v.substring(7, 11);
+  e.target.value = formatted;
+});
+
 
 mountThemeUI();
 mountDarkContrastFix();
