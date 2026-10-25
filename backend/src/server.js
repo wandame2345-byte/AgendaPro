@@ -1928,7 +1928,13 @@ app.get('/api/reports/pdf', auth, requireAdmin, asyncHandler(async (req, res) =>
     drawSectionTitle(doc, 'VENDAS DE PRODUTOS');
     doc.fillColor(colors.muted).fontSize(9).font('Helvetica-Oblique');
     doc.text('Nenhuma venda registrada neste período.', margin + 10, doc.y + 8, { width: contentWidth - 20 });
-    doc.y
+    doc.y += 25;
+  }
+
+  // Rodapé da última página
+  drawFooter(doc, pageNum.value);
+  doc.end();
+}));
 // =====================================================
 // FRONTEND E ERROS
 // =====================================================
