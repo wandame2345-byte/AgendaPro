@@ -3704,13 +3704,16 @@ $("cbPhoto").addEventListener(
 
 $("cbPhone").type = "tel";
 $("cbPhone").inputMode = "numeric";
-$("cbPhone").maxLength = 11;
-$("cbPhone").placeholder = "85999999999";
-
-$("cbPhone").addEventListener("input", () => {
-  $("cbPhone").value = $("cbPhone").value
-    .replace(/\D/g, "")
-    .slice(0, 11);
+$("cbPhone").maxLength = 16;
+$("cbPhone").placeholder = "(00) 9 0000-0000";
+$("cbPhone").addEventListener("input", (e) => {
+  let v = e.target.value.replace(/\D/g, "");
+  if (v.length > 11) v = v.slice(0, 11);
+  if (v.length > 0) v = "(" + v;
+  if (v.length > 3) v = v.slice(0, 3) + ") " + v.slice(3);
+  if (v.length > 7) v = v.slice(0, 7) + " " + v.slice(7);
+  if (v.length > 12) v = v.slice(0, 12) + "-" + v.slice(12);
+  e.target.value = v;
 });
 
 $("clientBookingForm").addEventListener(
@@ -3746,7 +3749,7 @@ $("clientBookingForm").addEventListener(
 
       form.append(
         "phone",
-        $("cbPhone").value.trim()
+        $("cbPhone").value.replace(/\D/g, "").trim()
       );
 
       form.append("date", $("cbDate").value);
