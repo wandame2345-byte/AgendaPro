@@ -4585,7 +4585,7 @@ async function boot() {
 // =====================================================
 async function initComprasPage() {
   try {
-    const products = await api("/api/products");
+    const products = await api("/api/public/products");
     renderProductsList(products);
   } catch (error) {
     alert(error.message);
