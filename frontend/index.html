@@ -142,6 +142,7 @@
     .full-width { width:100%; }
 
     /* LOGIN */
+
     #authScreen {
       display:flex;
       min-height:100dvh;
@@ -184,7 +185,6 @@
     }
 
     .auth-benefits div { display:flex;gap:10px;align-items:center; }
-
     .auth-content { padding:52px 40px;align-self:center; }
     .auth-content h2 { font-size:24px;margin-bottom:6px; }
 
@@ -222,6 +222,7 @@
     .error { color:var(--danger);min-height:22px;margin:10px 0; }
 
     /* ESTRUTURA */
+
     #app { display:none;min-height:100dvh; }
 
     .sidebar {
@@ -354,6 +355,7 @@
     .panel-heading p { margin:4px 0 0;font-size:12px; }
 
     /* DASHBOARD */
+
     .cards {
       display:grid;
       grid-template-columns:repeat(4,minmax(0,1fr));
@@ -417,6 +419,7 @@
     #monthSummary p:last-child { border:0; }
 
     /* FILTROS E TABELAS */
+
     .filters { display:flex;align-items:end;gap:10px;flex-wrap:wrap; }
     .filters label { display:grid;gap:6px;font-size:12px;color:var(--muted); }
     .filters input,.filters select { width:auto;min-width:150px; }
@@ -497,7 +500,7 @@
       align-items: center;
       justify-content: center;
       background: rgba(0, 0, 0, 0.85);
-      z-index: 9999;
+      z-index: 99999; position: fixed; inset: 0; padding: 20px; background: rgba(0,0,0,0.95);
     }
 
     .photo-viewer-box {
@@ -516,7 +519,7 @@
 
     .photo-viewer-close {
       position: absolute;
-      top: -36px;
+      top: 20px; right: 20px; position: fixed; background: rgba(255,255,255,0.2); border-radius: 50%; min-width: 50px; min-height: 50px; display: flex; align-items: center; justify-content: center; z-index: 100000;
       right: 0;
       background: transparent;
       color: #fff;
@@ -564,6 +567,7 @@
     }
 
     /* AGENDA */
+
     .slots {
       display:grid;
       grid-template-columns:repeat(auto-fit,minmax(145px,1fr));
@@ -596,6 +600,7 @@
     #futurePanel table,#atendimentos table { min-width:810px; }
 
     /* FORMULÁRIOS */
+
     input,select,textarea {
       display:block;
       width:100%;
@@ -706,6 +711,7 @@
     .report-actions .btn { font-size:12px; }
 
     /* PÁGINA DO CLIENTE */
+
     #clientPage {
       display:none;
       min-height:100dvh;
@@ -779,6 +785,7 @@
     body.has-overlay,body:has(dialog[open]) { overflow:hidden; }
 
     /* TELAS GRANDES */
+
     @media(min-width:1600px) {
       .content { padding-top:40px; }
       .cards { gap:20px; }
@@ -798,6 +805,7 @@
     }
 
     /* TABLETS */
+
     @media(max-width:900px) {
       .sidebar {
         visibility:hidden;
@@ -834,6 +842,7 @@
     }
 
     /* CELULARES */
+
     @media(max-width:600px) {
       body { font-size:13px; }
       #authScreen { padding:18px; }
@@ -919,8 +928,11 @@
     }
   </style>
 </head>
+
 <body>
+
   <!-- ACESSO -->
+
   <div id="authScreen">
     <div class="auth-shell">
       <div class="auth-intro">
@@ -928,22 +940,27 @@
           <div class="brand-icon" aria-hidden="true">✂</div>
           <div>Agenda<span>Pro</span></div>
         </div>
+
         <div class="eyebrow">Seu salão, bem organizado</div>
         <h1>Mais cuidado.<br>Menos correria.</h1>
+
         <p>
           Sua agenda, seus clientes e os próximos retornos
           em um só lugar.
         </p>
+
         <div class="auth-benefits">
           <div>✓ Agendamentos e retornos</div>
           <div>✓ Clientes sempre por perto</div>
           <div>✓ Uma visão clara do seu dia</div>
         </div>
       </div>
+
       <div class="auth-content">
         <div id="roleSelect">
           <h2>Bem-vindo ao AgendaPro</h2>
           <p>Escolha como deseja entrar.</p>
+
           <button type="button" class="role-option" onclick="selectRole('admin')">
             <span class="role-icon" aria-hidden="true">👑</span>
             <span>
@@ -952,6 +969,7 @@
             </span>
             <span class="role-arrow" aria-hidden="true">›</span>
           </button>
+
           <button type="button" class="role-option" onclick="selectRole('funcionario')">
             <span class="role-icon" aria-hidden="true">👤</span>
             <span>
@@ -960,6 +978,7 @@
             </span>
             <span class="role-arrow" aria-hidden="true">›</span>
           </button>
+
           <button type="button" class="role-option" onclick="selectRole('cliente')">
             <span class="role-icon" aria-hidden="true">📅</span>
             <span>
@@ -969,10 +988,12 @@
             <span class="role-arrow" aria-hidden="true">›</span>
           </button>
         </div>
+
         <form id="loginForm" style="display:none">
           <div class="eyebrow">Acesse sua conta</div>
           <h2>Que bom ter você aqui</h2>
           <p id="loginRoleLabel"></p>
+
           <div class="field">
             <label for="loginPassword">Senha</label>
             <input
@@ -983,10 +1004,13 @@
               placeholder="Digite sua senha"
             >
           </div>
+
           <div id="loginError" class="error" role="alert"></div>
+
           <button type="submit" class="btn primary full-width">
             Entrar no sistema
           </button>
+
           <button
             type="button"
             class="btn secondary full-width"
@@ -996,6 +1020,7 @@
             Voltar
           </button>
         </form>
+
         <p class="auth-note">
           Uma rotina mais leve começa com uma agenda organizada.
         </p>
@@ -1004,6 +1029,7 @@
   </div>
 
   <!-- SISTEMA -->
+
   <div id="app">
     <button
       type="button"
@@ -1012,33 +1038,43 @@
       aria-label="Fechar menu"
       tabindex="-1"
     ></button>
+
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="brand-icon" aria-hidden="true">✂</div>
         <div>Agenda<span>Pro</span></div>
       </div>
+
       <button
         type="button"
         id="closeMenu"
         class="icon-btn sidebar-close"
         aria-label="Fechar menu"
       >×</button>
+
       <div class="sidebar-caption">GESTÃO DO SALÃO</div>
+
       <nav class="nav" aria-label="Menu principal"></nav>
+
       <div class="sidebar-footer">
         <hr>
+
         <div id="userTag" class="user-tag"></div>
+
         <button type="button" id="configNavBtn">
           ⚙️ Configurações
         </button>
+
         <button type="button" class="logout" onclick="logout()">
           ↪ Sair da conta
         </button>
+
         <div class="sidebar-footnote">
           AgendaPro · Seu dia em ordem
         </div>
       </div>
     </aside>
+
     <div class="app-main">
       <header class="app-header">
         <div class="header-left">
@@ -1050,20 +1086,26 @@
             aria-controls="sidebar"
             aria-expanded="false"
           >☰</button>
+
           <span class="mobile-brand">AgendaPro</span>
+
           <div class="header-context">
             GESTÃO DO SALÃO
             <strong>Organização para cuidar melhor</strong>
           </div>
         </div>
+
         <div class="header-actions">
           <button type="button" class="btn primary" onclick="openModal()">
             + Agendar
           </button>
         </div>
       </header>
+
       <main class="content">
+
         <!-- DASHBOARD -->
+
         <section id="dashboard" class="section">
           <div class="top">
             <div>
@@ -1072,28 +1114,33 @@
               <p id="todayLabel"></p>
             </div>
           </div>
+
           <div class="cards" id="dashCards">
             <div class="card featured">
               <div class="label">Faturamento hoje</div>
               <div class="value" id="todayRevenue">R$ 0,00</div>
               <div class="small" id="todayCount">0 atendimentos</div>
             </div>
+
             <div class="card">
               <div class="label">Faturamento da semana</div>
               <div class="value" id="weekRevenue">R$ 0,00</div>
               <div class="small" id="weekCount">0 atendimentos</div>
             </div>
+
             <div class="card" id="monthCardWrap">
               <div class="label">Faturamento do mês</div>
               <div class="value" id="monthRevenue">R$ 0,00</div>
               <div class="small" id="monthCount">0 atendimentos</div>
             </div>
+
             <div class="card">
               <div class="label">Horários para agendar hoje</div>
               <div class="value" id="freeCount">0</div>
               <div class="small">Permite vários clientes por horário</div>
             </div>
           </div>
+
           <div class="split">
             <div class="panel">
               <h2>Atendimentos de hoje</h2>
@@ -1101,12 +1148,14 @@
                 <div class="empty">Carregando sua agenda...</div>
               </div>
             </div>
+
             <div class="panel summary-panel" id="monthSummaryPanel">
               <div class="eyebrow">Acompanhe seu negócio</div>
               <h2>Resumo do mês</h2>
               <div id="monthSummary"></div>
             </div>
           </div>
+
           <div class="panel">
             <div class="panel-heading">
               <div>
@@ -1114,42 +1163,52 @@
                 <p>Escolha as datas para acompanhar os atendimentos.</p>
               </div>
             </div>
+
             <div class="filters">
               <label for="dashFilterStart">
                 Data inicial
                 <input id="dashFilterStart" type="date">
               </label>
+
               <label for="dashFilterEnd">
                 Data final
                 <input id="dashFilterEnd" type="date">
               </label>
+
               <button type="button" class="btn primary" onclick="applyDashboardFilter()">
                 Filtrar
               </button>
+
               <button type="button" class="btn secondary" onclick="clearDashboardFilter()">
                 Limpar
               </button>
             </div>
+
             <div class="mini-cards" id="dashFilterCards" style="display:none">
               <div class="mini-card">
                 <span>Faturamento</span>
                 <strong id="dashFilterRevenue">R$ 0,00</strong>
               </div>
+
               <div class="mini-card">
                 <span>Atendimentos</span>
                 <strong id="dashFilterCount">0</strong>
               </div>
+
               <div class="mini-card">
                 <span>Ticket médio</span>
                 <strong id="dashFilterTicket">R$ 0,00</strong>
               </div>
             </div>
+
             <div id="dashFilterTable" class="table-wrap"></div>
           </div>
+
           <!-- Os painéis futuros e financeiros são criados pelos scripts. -->
         </section>
 
         <!-- AGENDA -->
+
         <section id="agenda" class="section">
           <div class="top">
             <div>
@@ -1157,10 +1216,12 @@
               <h1>Agenda</h1>
               <p>Veja os horários e organize os atendimentos do salão.</p>
             </div>
+
             <button type="button" class="btn primary" onclick="openModal()">
               + Novo agendamento
             </button>
           </div>
+
           <div class="panel">
             <div class="panel-heading">
               <div>
@@ -1171,11 +1232,13 @@
                 </p>
               </div>
             </div>
+
             <div class="date-controls" style="margin-bottom:20px">
               <label for="agendaDate">
                 Data da agenda
                 <input id="agendaDate" type="date" onchange="renderAgenda()">
               </label>
+
               <div class="day-navigation">
                 <button
                   type="button"
@@ -1183,9 +1246,11 @@
                   onclick="changeDay(-1)"
                   aria-label="Dia anterior"
                 >‹</button>
+
                 <button type="button" class="btn secondary" onclick="goToday()">
                   Hoje
                 </button>
+
                 <button
                   type="button"
                   class="icon-btn"
@@ -1194,44 +1259,55 @@
                 >›</button>
               </div>
             </div>
+
             <div id="slots" class="slots"></div>
           </div>
+
           <div class="panel">
             <h2>Agendamentos da data selecionada</h2>
             <div id="dayTable" class="table-wrap"></div>
           </div>
+
           <div class="panel">
             <h2>Consultar período</h2>
+
             <div class="filters">
               <label for="agendaFilterStart">
                 Data inicial
                 <input id="agendaFilterStart" type="date">
               </label>
+
               <label for="agendaFilterEnd">
                 Data final
                 <input id="agendaFilterEnd" type="date">
               </label>
+
               <button type="button" class="btn primary" onclick="applyAgendaFilter()">
                 Consultar
               </button>
+
               <button type="button" class="btn secondary" onclick="clearAgendaFilter()">
                 Limpar
               </button>
             </div>
+
             <div class="mini-cards" id="agendaFilterCards" style="display:none">
               <div class="mini-card">
                 <span>Faturamento</span>
                 <strong id="agendaFilterRevenue">R$ 0,00</strong>
               </div>
+
               <div class="mini-card">
                 <span>Atendimentos</span>
                 <strong id="agendaFilterCount">0</strong>
               </div>
+
               <div class="mini-card">
                 <span>Ticket médio</span>
                 <strong id="agendaFilterTicket">R$ 0,00</strong>
               </div>
             </div>
+
             <div id="agendaFilterTable" class="table-wrap"></div>
           </div>
         </section>
@@ -1239,6 +1315,7 @@
         <!-- A aba Atendimentos é criada pelo app.js. -->
 
         <!-- CLIENTES -->
+
         <section id="clientes" class="section">
           <div class="top">
             <div>
@@ -1246,10 +1323,12 @@
               <h1>Clientes</h1>
               <p>Contatos, histórico e próximos retornos em um só lugar.</p>
             </div>
+
             <button type="button" class="btn primary" onclick="openClientModal()">
               + Novo cliente
             </button>
           </div>
+
           <div class="panel">
             <div class="filters" style="margin-bottom:20px">
               <label for="clientSearch" class="search-field">
@@ -1262,6 +1341,7 @@
                 >
               </label>
             </div>
+
             <div id="clientTable" class="table-wrap"></div>
           </div>
         </section>
@@ -1269,6 +1349,7 @@
         <!-- Vendas Salão é criada pelo vendas.js. -->
 
         <!-- PROCEDIMENTOS -->
+
         <section id="procedimentos" class="section">
           <div class="top">
             <div>
@@ -1277,8 +1358,10 @@
               <p>Cadastre os serviços e mantenha os valores atualizados.</p>
             </div>
           </div>
+
           <div class="panel">
             <h2>Novo procedimento</h2>
+
             <form
               class="procedure-create"
               onsubmit="event.preventDefault(); addProcedure();"
@@ -1292,6 +1375,7 @@
                   placeholder="Ex.: Corte feminino"
                 >
               </div>
+
               <div class="field">
                 <label for="procPrice">Valor (R$)</label>
                 <input
@@ -1304,9 +1388,11 @@
                   placeholder="0,00"
                 >
               </div>
+
               <button type="submit" class="btn primary">+ Adicionar</button>
             </form>
           </div>
+
           <div class="panel">
             <h2>Procedimentos cadastrados</h2>
             <div id="procedureTable" class="table-wrap"></div>
@@ -1314,6 +1400,7 @@
         </section>
 
         <!-- RELATÓRIOS -->
+
         <section id="relatorios" class="section">
           <div class="top">
             <div>
@@ -1321,17 +1408,20 @@
               <h1>Relatórios</h1>
               <p>Acompanhe os valores e os procedimentos mais realizados.</p>
             </div>
+
             <div class="report-actions">
               <button
                 type="button"
                 class="btn secondary"
                 onclick="downloadReportPDF('day')"
               >↓ PDF diário</button>
+
               <button
                 type="button"
                 class="btn secondary"
                 onclick="downloadReportPDF('month')"
               >↓ PDF mensal</button>
+
               <button
                 type="button"
                 class="btn secondary"
@@ -1339,53 +1429,65 @@
               >↓ PDF anual</button>
             </div>
           </div>
+
           <div class="cards three">
             <div class="card">
               <div class="label">Hoje</div>
               <div class="value" id="rToday">R$ 0,00</div>
             </div>
+
             <div class="card featured">
               <div class="label">Este mês</div>
               <div class="value" id="rMonth">R$ 0,00</div>
             </div>
+
             <div class="card">
               <div class="label">Este ano</div>
               <div class="value" id="rYear">R$ 0,00</div>
             </div>
           </div>
+
           <div class="panel">
             <h2>Filtrar por período</h2>
+
             <div class="filters">
               <label for="reportStartDate">
                 Data inicial
                 <input id="reportStartDate" type="date">
               </label>
+
               <label for="reportEndDate">
                 Data final
                 <input id="reportEndDate" type="date">
               </label>
+
               <button type="button" class="btn primary" onclick="applyReportFilter()">
                 Filtrar
               </button>
+
               <button type="button" class="btn secondary" onclick="clearReportFilter()">
                 Limpar
               </button>
             </div>
+
             <div class="mini-cards">
               <div class="mini-card">
                 <span>Faturamento</span>
                 <strong id="filteredRevenue">R$ 0,00</strong>
               </div>
+
               <div class="mini-card">
                 <span>Atendimentos</span>
                 <strong id="filteredCount">0</strong>
               </div>
+
               <div class="mini-card">
                 <span>Ticket médio</span>
                 <strong id="filteredTicket">R$ 0,00</strong>
               </div>
             </div>
           </div>
+
           <div class="panel">
             <h2>Procedimentos mais realizados</h2>
             <div id="procedureReport"></div>
@@ -1393,6 +1495,7 @@
         </section>
 
         <!-- CONFIGURAÇÕES -->
+
         <section id="configuracoes" class="section">
           <div class="top">
             <div>
@@ -1401,11 +1504,14 @@
               <p>Cuide do acesso à sua conta.</p>
             </div>
           </div>
+
           <div class="panel config-panel">
             <h2>Alterar senha</h2>
+
             <div class="note-box">
               Escolha uma senha com pelo menos 6 caracteres.
             </div>
+
             <form id="passwordForm" class="form">
               <div class="field full">
                 <label for="currentPassword">Senha atual</label>
@@ -1416,6 +1522,7 @@
                   required
                 >
               </div>
+
               <div class="field">
                 <label for="newPassword">Nova senha</label>
                 <input
@@ -1426,6 +1533,7 @@
                   required
                 >
               </div>
+
               <div class="field">
                 <label for="confirmPassword">Confirmar nova senha</label>
                 <input
@@ -1436,11 +1544,14 @@
                   required
                 >
               </div>
+
               <div class="full" id="passwordMessage" role="status"></div>
+
               <div class="form-actions full">
                 <button type="button" class="btn secondary" onclick="clearPasswordForm()">
                   Limpar
                 </button>
+
                 <button type="submit" class="btn primary">
                   Salvar nova senha
                 </button>
@@ -1448,21 +1559,25 @@
             </form>
           </div>
         </section>
+
       </main>
     </div>
   </div>
 
   <!-- AGENDAMENTO PÚBLICO -->
+
   <div id="clientPage">
     <header class="booking-header">
       <div class="brand">
         <div class="brand-icon" aria-hidden="true">✂</div>
         <div>Agenda<span>Pro</span></div>
       </div>
+
       <button type="button" class="btn secondary btn-sm" onclick="logout()">
         Voltar ao início
       </button>
     </header>
+
     <main class="booking-main">
       <div id="clientStepForm">
         <div class="booking-hero">
@@ -1470,12 +1585,14 @@
           <h1>Agende seu atendimento</h1>
           <p>Escolha o procedimento, a data e o melhor horário.</p>
         </div>
+
         <div class="panel booking-panel">
           <form id="clientBookingForm">
             <h2 class="booking-step">
               <span class="step-number">1</span>
               Seus dados
             </h2>
+
             <div class="form">
               <div class="field">
                 <label for="cbName">Nome completo</label>
@@ -1488,6 +1605,7 @@
                   placeholder="Como podemos chamar você?"
                 >
               </div>
+
               <div class="field">
                 <label for="cbPhone">WhatsApp com DDD</label>
                 <input
@@ -1500,10 +1618,12 @@
                 >
               </div>
             </div>
+
             <h2 class="booking-step">
               <span class="step-number">2</span>
               Procedimento e data
             </h2>
+
             <div class="form">
               <div class="field">
                 <label for="clientProcedure">Procedimento</label>
@@ -1511,20 +1631,25 @@
                   <option value="">Selecione</option>
                 </select>
               </div>
+
               <div class="field">
                 <label for="cbDate">Data do atendimento</label>
                 <input id="cbDate" type="date" required>
               </div>
             </div>
+
             <h2 class="booking-step">
               <span class="step-number">3</span>
               Escolha um horário
             </h2>
+
             <div id="cbSlots" class="slots"></div>
+
             <h2 class="booking-step">
               <span class="step-number">4</span>
               Informações adicionais
             </h2>
+
             <div class="form">
               <div class="field full">
                 <label for="cbNote">Observação (opcional)</label>
@@ -1533,6 +1658,7 @@
                   placeholder="Conte algo que precisamos saber antes do atendimento."
                 ></textarea>
               </div>
+
               <div class="field full">
                 <label for="cbPhoto">Foto (opcional)</label>
                 <input
@@ -1547,6 +1673,7 @@
                 >
               </div>
             </div>
+
             <div class="form-actions">
               <button type="submit" class="btn primary full-width">
                 Confirmar agendamento
@@ -1555,11 +1682,13 @@
           </form>
         </div>
       </div>
+
       <div id="clientSuccess" class="panel success-card" style="display:none">
         <div class="success-mark" aria-hidden="true">✓</div>
         <h1>Horário agendado!</h1>
         <p id="successDetails"></p>
         <p>Seu agendamento foi registrado. Esperamos você!</p>
+
         <button type="button" class="btn primary" onclick="newClientBooking()">
           Fazer outro agendamento
         </button>
@@ -1567,28 +1696,8 @@
     </main>
   </div>
 
-  <!-- VISUALIZADOR DE FOTO -->
-  <div
-    id="photoViewer"
-    class="modal photo-viewer-modal"
-    role="dialog"
-    aria-modal="true"
-    aria-label="Visualizar foto do cliente"
-    tabindex="-1"
-    onclick="if(event.target===this)closePhotoViewer()"
-  >
-    <div class="photo-viewer-box">
-      <button
-        type="button"
-        class="close photo-viewer-close"
-        onclick="closePhotoViewer()"
-        aria-label="Fechar visualização"
-      >×</button>
-      <img id="photoViewerImg" alt="Foto ampliada do cliente">
-    </div>
-  </div>
-
   <!-- FORMULÁRIO DE AGENDAMENTO -->
+
   <div
     id="modal"
     class="modal"
@@ -1607,6 +1716,7 @@
           aria-label="Fechar agendamento"
         >×</button>
       </div>
+
       <form id="appointmentForm" class="form">
         <div class="field">
           <label for="name">Nome do cliente</label>
@@ -1619,6 +1729,7 @@
             placeholder="Nome completo"
           >
         </div>
+
         <div class="field">
           <label for="phone">WhatsApp com DDD</label>
           <input
@@ -1630,22 +1741,26 @@
             placeholder="Somente números"
           >
         </div>
+
         <div class="field">
           <label for="date">Data</label>
           <input id="date" type="date" required>
         </div>
+
         <div class="field">
           <label for="time">Horário</label>
           <select id="time" required>
             <option value="">Selecione</option>
           </select>
         </div>
+
         <div class="field">
           <label for="procedure">Procedimento</label>
           <select id="procedure" required>
             <option value="">Selecione</option>
           </select>
         </div>
+
         <div class="field">
           <label for="price">Valor (R$)</label>
           <input
@@ -1658,6 +1773,7 @@
             placeholder="0,00"
           >
         </div>
+
         <div class="field full">
           <label for="status">Status</label>
           <select id="status">
@@ -1665,6 +1781,7 @@
             <option>Cancelado</option>
           </select>
         </div>
+
         <div class="field full">
           <label for="note">Observação</label>
           <textarea
@@ -1672,10 +1789,12 @@
             placeholder="Orientações ou detalhes do atendimento"
           ></textarea>
         </div>
+
         <div class="form-actions full">
           <button type="button" class="btn secondary" onclick="closeModal()">
             Fechar
           </button>
+
           <button type="submit" class="btn primary">
             Salvar agendamento
           </button>
@@ -1684,7 +1803,29 @@
     </div>
   </div>
 
+  <!-- VISUALIZADOR DE FOTO -->
+
+  <div
+    id="photoViewer"
+    class="modal photo-viewer-modal"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Visualizar foto do cliente"
+    tabindex="-1"
+    onclick="if(event.target===this)closePhotoViewer()"
+  >
+    <div class="photo-viewer-box">
+      <button
+        type="button"
+        class="close photo-viewer-close"
+        onclick="closePhotoViewer()"
+        aria-label="Fechar visualização">×</button>
+      <img id="photoViewerImg" alt="Foto ampliada do cliente">
+    </div>
+  </div>
+
   <!-- FORMULÁRIO DE CLIENTE -->
+
   <div
     id="clientModal"
     class="modal"
@@ -1703,6 +1844,7 @@
           aria-label="Fechar cadastro"
         >×</button>
       </div>
+
       <form id="clientForm" class="form">
         <div class="field">
           <label for="clientName">Nome completo</label>
@@ -1714,6 +1856,7 @@
             placeholder="Nome do cliente"
           >
         </div>
+
         <div class="field">
           <label for="clientPhone">WhatsApp com DDD</label>
           <input
@@ -1724,6 +1867,7 @@
             placeholder="Somente números"
           >
         </div>
+
         <div class="field full">
           <label for="clientNote">Observação</label>
           <textarea
@@ -1731,6 +1875,7 @@
             placeholder="Preferências e informações do cliente"
           ></textarea>
         </div>
+
         <div class="field full">
           <label for="clientPhoto">Foto (opcional)</label>
           <input
@@ -1744,10 +1889,12 @@
             alt="Prévia da foto do cliente"
           >
         </div>
+
         <div class="form-actions full">
           <button type="button" class="btn secondary" onclick="closeClientModal()">
             Fechar
           </button>
+
           <button type="submit" class="btn primary">
             Salvar cliente
           </button>
@@ -1757,15 +1904,18 @@
   </div>
 
   <!-- ORDEM NECESSÁRIA: APP PRIMEIRO, VENDAS DEPOIS -->
+
   <script src="/app.js?v=20260930-vendas"></script>
   <script src="/vendas.js?v=20260930-1"></script>
 
   <!-- MENU MOBILE E COMPORTAMENTO VISUAL -->
+
   <script>
     (() => {
       const sidebar = document.getElementById("sidebar");
       const overlay = document.getElementById("menuOverlay");
       const opener = document.getElementById("openMenu");
+
       let lastModalFocus = null;
 
       const syncScroll = () => {
@@ -1780,6 +1930,7 @@
         sidebar.classList.toggle("is-open", open);
         overlay.classList.toggle("show", open);
         opener.setAttribute("aria-expanded", String(open));
+
         syncScroll();
 
         if (open) {
