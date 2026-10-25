@@ -544,7 +544,23 @@ app.post('/api/clients', auth, upload.single('photo'), asyncHandler(async (req, 
   const note = String(req.body.note || '').trim();
   if (!name || !phone) fail('Nome e telefone são obrigatórios.');
   if (name.length > 150 || phone.length > 30) fail('Nome ou telefone muito longo.');
-  const photo = req.file ? `/uploads/${req.file.filename}` : null;
+  let photo = null;
+if (req.file) {
+  if (req.file.buffer) {
+    photo = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+  } else if (req.file.path) {
+    // Fallback para diskStorage (lê o arquivo e converte)
+    try {
+      const fs = await import('fs');
+      const fileData = fs.readFileSync(req.file.path);
+      photo = `data:${req.file.mimetype};base64,${fileData.toString('base64')}`;
+      fs.unlinkSync(req.file.path); // Remove o arquivo físico após converter
+    } catch (e) {
+      console.error('Erro ao converter foto para base64:', e);
+      photo = `/uploads/${req.file.filename}`; // Fallback final
+    }
+  }
+}
   const result = await pool.query(`
     INSERT INTO clientes(nome, telefone, foto_url, observacao)
     VALUES($1, $2, $3, $4)
@@ -1168,7 +1184,23 @@ app.post(
     const name = String(req.body?.name || '').trim();
     const price = validMoney(req.body?.price);
     const description = String(req.body?.description || '').trim();
-    const photo = req.file ? `/uploads/${req.file.filename}` : null;
+    let photo = null;
+if (req.file) {
+  if (req.file.buffer) {
+    photo = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+  } else if (req.file.path) {
+    // Fallback para diskStorage (lê o arquivo e converte)
+    try {
+      const fs = await import('fs');
+      const fileData = fs.readFileSync(req.file.path);
+      photo = `data:${req.file.mimetype};base64,${fileData.toString('base64')}`;
+      fs.unlinkSync(req.file.path); // Remove o arquivo físico após converter
+    } catch (e) {
+      console.error('Erro ao converter foto para base64:', e);
+      photo = `/uploads/${req.file.filename}`; // Fallback final
+    }
+  }
+}
     if (!name || name.length > 150) {
       fail('Informe o nome do produto, com até 150 caracteres.');
     }
@@ -2010,6 +2042,13 @@ app.get('/api/reports/pdf', auth, requireAdmin, asyncHandler(async (req, res) =>
 // =====================================================
 // FRONTEND E ERROS
 // =====================================================
+
+app.delete('/api/sales/cancelled', auth, requireAdmin, asyncHandler(async (req, res) => {
+  const delItems = await pool.query(`DELETE FROM venda_itens WHERE venda_id IN (SELECT id FROM vendas WHERE status = 'Cancelada')`);
+  const delSales = await pool.query(`DELETE FROM vendas WHERE status = 'Cancelada'`);
+  res.json({ ok: true, message: delSales.rowCount + " venda(s) cancelada(s) removida(s).", count: delSales.rowCount });
+}));
+
 app.get('/', security.sendHtml);
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/')) {
@@ -2161,6 +2200,7 @@ async function startServer() {
     await security.ensureSchema();
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`AgendaPro rodando na porta ${PORT}`);
+console.log('Diretório de uploads:', uploadDir);
       console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
     });
   } catch (error) {
