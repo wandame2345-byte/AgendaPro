@@ -661,7 +661,8 @@ export function installSecurity(
                 req.file = {
                   filename,
                   mimetype: 'image/webp',
-                  size: buffer.length
+                  size: buffer.length,
+                  buffer: buffer
                 };
 
                 res.once('finish', () => {
