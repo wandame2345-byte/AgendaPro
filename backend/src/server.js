@@ -1002,6 +1002,56 @@ app.post('/api/public/bookings', upload.single('photo'), asyncHandler(async (req
   res.status(201).json(result);
 }));
 // =====================================================
+// VENDAS PÚBLICAS (COMPRAS DE CLIENTES)
+// =====================================================
+app.post('/api/public/sales', asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const name = String(body.name || '').trim();
+  const phone = normalizePhone(body.phone);
+  const items = body.items;
+
+  if (!name || !phone) fail('Nome e telefone são obrigatórios.');
+  if (!Array.isArray(items) || items.length === 0) fail('Adicione pelo menos um produto ao carrinho.');
+
+  const sale = await transaction(async db => {
+    // 1. Garantir que o cliente existe (upsert)
+    const customer = await upsertClient(db, { name, phone, note: 'Cliente via loja virtual' });
+
+    // 2. Criar a venda
+    const insertedSale = await db.query(`
+      INSERT INTO vendas(cliente_id, data, status, observacao)
+      VALUES($1, CURRENT_DATE, 'Confirmada', 'Compra via site/app')
+      RETURNING id
+    `, [customer.id]);
+    const saleId = insertedSale.rows[0].id;
+
+    // 3. Inserir os itens
+    for (const item of items) {
+      const productId = validId(item.productId, 'Produto');
+      const quantity = Number(item.quantity);
+      const unitPrice = validMoney(item.unitPrice);
+
+      if (!Number.isInteger(quantity) || quantity < 1) fail('Quantidade inválida.');
+
+      // Verificar se o produto existe e está ativo
+      const productCheck = await db.query(
+        'SELECT nome FROM produtos WHERE id = $1 AND ativo = TRUE',
+        [productId]
+      );
+      if (!productCheck.rowCount) fail('Produto indisponível: ' + productId);
+
+      await db.query(`
+        INSERT INTO venda_itens(venda_id, produto_id, produto_nome, quantidade, valor_unitario)
+        VALUES($1, $2, $3, $4, $5)
+      `, [saleId, productId, productCheck.rows[0].nome, quantity, unitPrice]);
+    }
+
+    return { ok: true, id: saleId };
+  }, true);
+
+  res.status(201).json(sale);
+}));
+// =====================================================
 // RETORNOS
 // =====================================================
 app.post('/api/appointments/:id/return', auth, asyncHandler(async (req, res) => {
@@ -2072,7 +2122,13 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS idx_venda_itens_produto
       ON venda_itens(produto_id);
   `);
-  console.log('Banco de dados verificado e preparado.');
+  
+    await pool.query(`
+      ALTER TABLE vendas DROP CONSTRAINT IF EXISTS vendas_status_check;
+      ALTER TABLE vendas ADD CONSTRAINT vendas_status_check CHECK (status IN ('Confirmada', 'Cancelada', 'Pendente'));
+    `);
+    
+console.log('Banco de dados verificado e preparado.');
 }
 // =====================================================
 // INICIALIZAÇÃO
