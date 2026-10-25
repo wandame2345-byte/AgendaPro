@@ -1,2171 +1,4755 @@
-import { installSecurity, databaseOptions, cookieOptions, production } from './seguranca.js';
-import express from 'express';
-import path from 'path';
-import fs from 'fs';
-import dotenv from 'dotenv';
-import helmet from 'helmet';
-import cookieParser from 'cookie-parser';
-import multer from 'multer';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
-import pg from 'pg';
-import PDFDocument from 'pdfkit';
-import { fileURLToPath } from 'url';
-dotenv.config();
-const { Pool } = pg;
-pg.types.setTypeParser(1082, value => value);
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const root = path.resolve(__dirname, '../../');
-const frontend = path.join(root, 'frontend');
-const PORT = Number(process.env.PORT || 3000);
-const JWT_SECRET =
-  process.env.JWT_SECRET ||
-  (production
-    ? null
-    : 'agendapro-dev-secret-change-me');
-if (!JWT_SECRET) {
-  console.error('ERRO: configure JWT_SECRET no Render.');
-  process.exit(1);
-}
-if (!process.env.DATABASE_URL) {
-  console.error('ERRO: configure DATABASE_URL no Render.');
-  process.exit(1);
-}
-const uploadDir = path.resolve(
-  process.env.UPLOAD_DIR || path.join(root, 'uploads')
-);
-fs.mkdirSync(uploadDir, { recursive: true });
-const app = express();
-app.set('trust proxy', 1);
-const pool = new Pool(databaseOptions(process.env.DATABASE_URL));
-pool.on('error', error => {
-  console.error('Erro no PostgreSQL:', error.code || 'CONEXAO');
-});
-app.use(cookieParser());
-const security = installSecurity(app, pool, { secret: JWT_SECRET, uploadDir, frontend });
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true, limit: '2mb' }));
-app.use(express.static(frontend, { index: false, dotfiles: 'deny' }));
-// =====================================================
-// UTILITÁRIOS
-// =====================================================
-const asyncHandler = fn => (req, res, next) =>
-  Promise.resolve(fn(req, res, next)).catch(next);
-function fail(message, status = 400) {
-  const error = new Error(message);
-  error.status = status;
-  throw error;
-}
-function validId(value, label = 'Identificador') {
-  const id = String(value ?? '');
-  if (
-    !/^[1-9]\d{0,18}$/.test(id) ||
-    BigInt(id) > 9223372036854775807n
-  ) {
-    fail(label + ' inválido.');
-  }
-  return id;
-}
-function normalizePhone(value = '') {
-  return String(value).trim().replace(/\D/g, '');
-}
-function salonToday() {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Sao_Paulo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).formatToParts(new Date());
-  const part = type => parts.find(item => item.type === type).value;
-  return `${part('year')}-${part('month')}-${part('day')}`;
-}
-function procedurePrice(value) {
-  const text = String(value ?? '').trim().replace(',', '.');
-  if (!/^\d{1,8}(\.\d{1,2})?$/.test(text)) return null;
-  const price = Number(text);
-  return Number.isFinite(price) && price <= 99999999.99
-    ? price
-    : null;
-}
-function validMoney(value) {
-  const price = procedurePrice(value);
-  if (price === null) {
-    fail('Informe um valor de 0 a 99999999,99, com até duas casas decimais.');
-  }
-  return price;
-}
-function validDate(value) {
-  const date = String(value || '');
-  if (openingWeekday(date) === null) fail('Data inválida.');
-  return date;
-}
-async function transaction(work, appointmentLock = false) {
-  const db = await pool.connect();
-  try {
-    await db.query('BEGIN');
-    if (appointmentLock) {
-      await db.query('SELECT pg_advisory_xact_lock(20260930, 1)');
-    }
-    const result = await work(db);
-    await db.query('COMMIT');
-    return result;
-  } catch (error) {
-    await db.query('ROLLBACK');
-    throw error;
-  } finally {
-    db.release();
-  }
-}
-// =====================================================
-// AUTENTICAÇÃO
-// =====================================================
-const auth = security.auth;
-function requireAdmin(req, res, next) {
-  if (req.user?.role !== 'admin') {
-    return res.status(403).json({
-      error: 'Acesso permitido somente ao administrador.'
-    });
-  }
-  next();
-}
-const dummyPasswordHash = bcrypt.hashSync('AgendaPro-dummy-login-check', 12);
-app.post('/api/auth/login', security.accountLimit, asyncHandler(async (req, res) => {
-  const { email, password, role } = req.body || {};
-  if (typeof email !== 'string' || email.length > 150 || typeof password !== 'string' || !password || Buffer.byteLength(password) > 72 || typeof role !== 'string') {
-    fail('Informe e-mail, senha e perfil.');
-  }
-  if (!['admin', 'funcionario'].includes(role)) {
-    fail('Perfil inválido.');
-  }
-  const result = await pool.query(`
-    SELECT *
-    FROM usuarios
-    WHERE LOWER(email) = LOWER($1)
-      AND perfil = $2
-      AND ativo = TRUE
-    LIMIT 1
-  `, [String(email).trim(), role]);
-  const user = result.rows[0];
-  const passwordValid = await bcrypt.compare(password, user?.senha_hash || dummyPasswordHash);
-  if (!user || !passwordValid) {
-    fail('E-mail, perfil ou senha incorretos.', 401);
-  }
-  res.cookie('agendapro_token', await security.issueToken(user), { ...cookieOptions, maxAge: 8 * 60 * 60 * 1000 });
-  res.json({
-    user: {
-      id: user.id,
-      name: user.nome,
-      role: user.perfil
-    }
-  });
-}));
-app.post('/api/auth/logout', security.logout);
-app.get('/api/auth/me', auth, (req, res) => {
-  res.json({
-    user: {
-      id: req.user.id,
-      name: req.user.name,
-      role: req.user.role
-    }
-  });
-});
-app.put('/api/auth/password', auth, asyncHandler(async (req, res) => {
-  const { currentPassword, newPassword } = req.body || {};
-  if (!currentPassword || !newPassword) {
-    fail('Informe a senha atual e a nova senha.');
-  }
-  if (typeof currentPassword !== 'string' || Buffer.byteLength(currentPassword) > 72 || typeof newPassword !== 'string' || newPassword.length < 12 || Buffer.byteLength(newPassword) > 72) {
-    fail('Use uma nova senha de 12 a 72 bytes.');
-  }
-  const result = await pool.query(`
-    SELECT *
-    FROM usuarios
-    WHERE id = $1 AND ativo = TRUE
-    LIMIT 1
-  `, [req.user.id]);
-  const user = result.rows[0];
-  if (!user) fail('Usuário não encontrado.', 404);
-  const valid = await bcrypt.compare(
-    String(currentPassword),
-    user.senha_hash
+let openingHours = null;
+let openingHoursDirty = false;
+let currentUser = null;
+let pendingRole = null;
+let procedures = [];
+let clients = [];
+let appointments = [];
+let selectedSlot = "";
+let clientSlotsRequestId = 0;
+
+let returnSaving = false;
+let returnSlotsRequestId = 0;
+let returnSlotsReady = false;
+
+let liveTimer = null;
+let refreshBusy = false;
+let refreshSequence = 0;
+let lastDataDate = "";
+let notificationDate = "";
+let notifiedIds = new Set();
+let toastTimer = null;
+
+let appointmentSaving = false;
+let publicBookingSaving = false;
+let bookingClientId = null;
+let cart = [];
+
+const $ = id => document.getElementById(id);
+
+const money = value =>
+  new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL"
+  }).format(Number(value) || 0);
+
+const localDate = () => {
+  const date = new Date();
+
+  return new Date(
+    date.getTime() - date.getTimezoneOffset() * 60000
+  ).toISOString().slice(0, 10);
+};
+
+const fmtDate = value => {
+  if (!value) return "—";
+
+  const date = new Date(
+    String(value).slice(0, 10) + "T12:00:00"
   );
-  if (!valid) fail('Senha atual incorreta.');
-  const hash = await bcrypt.hash(String(newPassword), 12);
-  await security.changePassword(req.user.id, user.senha_hash, hash);
-  res.clearCookie('agendapro_token', cookieOptions);
-  res.json({ ok: true });
-}));
-// =====================================================
-// MAPEAMENTO DOS DADOS
-// =====================================================
-function publicClient(client) {
-  return {
-    id: client.id,
-    name: client.nome,
-    phone: client.telefone,
-    photo: client.foto_url,
-    note: client.observacao,
-    active: client.ativo
-  };
+
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleDateString("pt-BR");
+};
+
+const esc = value =>
+  String(value ?? "").replace(/[&<>"']/g, character => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  })[character]);
+
+const idArgument = value =>
+  esc(JSON.stringify(String(value)));
+
+function monthEnd(date) {
+  const [year, month] = date.split("-").map(Number);
+
+  return `${year}-${String(month).padStart(2, "0")}-` +
+    new Date(year, month, 0).getDate();
 }
-function publicAppointment(appointment) {
-  return {
-    id: appointment.id,
-    clientId: appointment.cliente_id,
-    originalAppointmentId: appointment.agendamento_origem_id || null,
-    isReturn:
-      Boolean(appointment.agendamento_origem_id) ||
-      appointment.status === 'Retorno',
-    name: appointment.nome,
-    phone: appointment.telefone,
-    date: appointment.data,
-    time: String(appointment.hora).slice(0, 5),
-    procedure: appointment.procedimento,
-    procedureId: appointment.procedimento_id,
-    price: Number(appointment.valor),
-    status: appointment.status,
-    note: appointment.observacao || ''
-  };
+
+async function api(url, options = {}) {
+  const response = await fetch(url, {
+    credentials: "include",
+    ...options
+  });
+
+  let data = null;
+
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      data?.error || "Não foi possível concluir a operação."
+    );
+  }
+
+  return data;
 }
-function publicProduct(product) {
-  return {
-    id: product.id,
-    name: product.nome,
-    description: product.descricao || '',
-    photo: product.foto_url || null,
-    price: Number(product.preco),
-    active: product.ativo
-  };
-}
-async function appointmentById(db, id) {
-  const result = await db.query(`
-    SELECT a.*, c.nome, c.telefone, p.nome AS procedimento
-    FROM agendamentos a
-    JOIN clientes c ON c.id = a.cliente_id
-    JOIN procedimentos p ON p.id = a.procedimento_id
-    WHERE a.id = $1
-  `, [id]);
-  if (!result.rowCount) fail('Agendamento não encontrado.', 404);
-  return publicAppointment(result.rows[0]);
-}
+
 // =====================================================
 // HORÁRIOS DE ATENDIMENTO
 // =====================================================
-function defaultOpeningHours() {
-  return {
-    slots: Array.from(
-      { length: 12 },
-      (_, index) => `${String(index + 8).padStart(2, '0')}:00`
-    )
-  };
-}
-function openingMinutes(value) {
-  if (
-    typeof value !== 'string' ||
-    !/^([01]\d|2[0-3]):[0-5]\d$/.test(value)
-  ) return null;
-  const [hour, minute] = value.split(':').map(Number);
-  return hour * 60 + minute;
-}
-function openingWeekday(date) {
-  if (
-    typeof date !== 'string' ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(date)
-  ) return null;
-  const value = new Date(date + 'T12:00:00Z');
+
+function openingSlots(settings, date) {
+  if (!settings || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return [];
+  }
+
+  const value = new Date(date + "T12:00:00Z");
+
   if (
     Number.isNaN(value.getTime()) ||
     value.toISOString().slice(0, 10) !== date
-  ) return null;
-  return value.getUTCDay();
-}
-function openingSlots(settings, date) {
-  const weekday = openingWeekday(date);
-  if (weekday === null) return [];
+  ) {
+    return [];
+  }
+
   if (Array.isArray(settings.slots)) {
     return [...settings.slots];
   }
-  const day = settings.days[weekday];
+
+  const day = settings.days[value.getUTCDay()];
+
   if (!day.open) return [];
-  const start = openingMinutes(day.start);
-  const end = openingMinutes(day.end);
-  const pauseStart = openingMinutes(day.breakStart);
-  const pauseEnd = openingMinutes(day.breakEnd);
-  const ranges = pauseStart === null
-    ? [[start, end]]
-    : [[start, pauseStart], [pauseEnd, end]];
+
+  const minutes = time => {
+    const [hours, mins] = time.split(":").map(Number);
+    return hours * 60 + mins;
+  };
+
+  const start = minutes(day.start);
+  const end = minutes(day.end);
+
+  const ranges = day.breakStart
+    ? [
+        [start, minutes(day.breakStart)],
+        [minutes(day.breakEnd), end]
+      ]
+    : [[start, end]];
+
   const slots = [];
+
   for (const [from, until] of ranges) {
     for (
       let minute = from;
       minute + settings.interval <= until;
       minute += settings.interval
     ) {
-      const hours = String(Math.floor(minute / 60)).padStart(2, '0');
-      const minutes = String(minute % 60).padStart(2, '0');
-      slots.push(`${hours}:${minutes}`);
+      const hour = String(
+        Math.floor(minute / 60)
+      ).padStart(2, "0");
+
+      const mins = String(
+        minute % 60
+      ).padStart(2, "0");
+
+      slots.push(`${hour}:${mins}`);
     }
   }
+
   return slots;
 }
-function validateOpeningHours(value) {
-  if (
-    value &&
-    Object.prototype.hasOwnProperty.call(value, 'slots')
-  ) {
-    if (!Array.isArray(value.slots) || value.slots.length > 1440) {
-      fail('Informe uma lista de até 1440 horários.');
+
+function mountOpeningHoursPanel() {
+  let panel = $("openingHoursPanel");
+
+  if (!panel || !panel.dataset.bound) {
+    let button = $("editAvailableHours");
+
+    if (!button) {
+      button = document.createElement("button");
+      button.id = "editAvailableHours";
+      button.type = "button";
+      button.className = "btn primary";
+
+      $("agenda").querySelector(".top")
+        .insertAdjacentElement("afterend", button);
     }
-    if (value.slots.some(time => openingMinutes(time) === null)) {
-      fail('Preencha cada horário no formato HH:mm.');
+
+    if (!panel) {
+      panel = document.createElement("div");
+      panel.id = "openingHoursPanel";
+      panel.className = "panel";
+      button.insertAdjacentElement("afterend", panel);
     }
-    if (new Set(value.slots).size !== value.slots.length) {
-      fail('Existem horários repetidos. Remova a repetição antes de salvar.');
-    }
-    return { slots: [...value.slots].sort() };
-  }
-  if (
-    !value ||
-    !Number.isInteger(value.interval) ||
-    value.interval < 5 ||
-    value.interval > 240
-  ) {
-    fail('O intervalo deve ser um número inteiro de 5 a 240 minutos.');
-  }
-  if (!Array.isArray(value.days) || value.days.length !== 7) {
-    fail('Configure os sete dias da semana.');
-  }
-  const labels = [
-    'Domingo', 'Segunda-feira', 'Terça-feira',
-    'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'
-  ];
-  const days = value.days.map((day, index) => {
-    if (!day || typeof day.open !== 'boolean') {
-      fail(`${labels[index]}: informe se o dia está aberto.`);
-    }
-    const start = openingMinutes(day.start);
-    const end = openingMinutes(day.end);
-    if (start === null || end === null) {
-      fail(`${labels[index]}: informe horários válidos.`);
-    }
-    const breakStart = day.breakStart ?? '';
-    const breakEnd = day.breakEnd ?? '';
-    const pauseStart = openingMinutes(breakStart);
-    const pauseEnd = openingMinutes(breakEnd);
-    if (
-      (breakStart !== '' || breakEnd !== '') &&
-      (pauseStart === null || pauseEnd === null)
-    ) {
-      fail(`${labels[index]}: preencha o início e o fim da pausa.`);
-    }
-    if (day.open && end <= start) {
-      fail(`${labels[index]}: o fechamento deve ser depois da abertura.`);
-    }
-    if (
-      day.open &&
-      pauseStart !== null &&
-      !(start < pauseStart && pauseStart < pauseEnd && pauseEnd < end)
-    ) {
-      fail(`${labels[index]}: a pausa deve ficar dentro do expediente.`);
-    }
-    if (day.open) {
-      const ranges = pauseStart === null
-        ? [[start, end]]
-        : [[start, pauseStart], [pauseEnd, end]];
-      if (!ranges.some(([from, until]) => until - from >= value.interval)) {
-        fail(`${labels[index]}: o expediente precisa comportar um intervalo completo.`);
+
+    panel.innerHTML = `
+      <p>
+        Altere os horários disponíveis e clique em Salvar horários.
+      </p>
+
+      <form id="openingHoursForm">
+        <div id="openingHoursDays"></div>
+
+        <div class="return-actions">
+          <button
+            id="addAttendanceTime"
+            type="button"
+            class="btn secondary"
+          >
+            + Adicionar horário
+          </button>
+
+          <button
+            id="saveOpeningHours"
+            type="submit"
+            class="btn primary"
+          >
+            Salvar horários
+          </button>
+        </div>
+
+        <p>
+          A lista vale para todos os dias.
+          Os agendamentos existentes serão mantidos.
+        </p>
+
+        <div id="openingHoursMessage" role="status"></div>
+      </form>
+    `;
+
+    panel.dataset.bound = "true";
+
+    button.onclick = () => {
+      panel.hidden = !panel.hidden;
+
+      button.setAttribute(
+        "aria-expanded",
+        String(!panel.hidden)
+      );
+
+      button.textContent = panel.hidden
+        ? "✏️ Alterar horários disponíveis"
+        : "Fechar edição dos horários";
+
+      if (!panel.hidden) {
+        renderOpeningHoursEditor();
       }
-    }
-    return {
-      open: day.open,
-      start: day.start,
-      end: day.end,
-      breakStart,
-      breakEnd
     };
-  });
-  return { interval: value.interval, days };
-}
-async function readOpeningHours(database = pool, lock = false) {
-  const result = await database.query(
-    'SELECT dados FROM configuracoes_agenda WHERE id = 1' +
-    (lock ? ' FOR SHARE' : '')
-  );
-  if (!result.rowCount) {
-    throw new Error('Horários de atendimento não configurados.');
-  }
-  return result.rows[0].dados;
-}
-async function assertOpeningSlot(database, date, time) {
-  const settings = await readOpeningHours(database, true);
-  if (
-    openingWeekday(date) === null ||
-    !openingSlots(settings, date).includes(time)
-  ) {
-    fail('Escolha um horário disponível na lista de atendimento.');
-  }
-}
-app.get('/api/opening-hours', asyncHandler(async (_req, res) => {
-  res.set('Cache-Control', 'no-store');
-  res.json(await readOpeningHours());
-}));
-app.put('/api/opening-hours', auth, requireAdmin, asyncHandler(async (req, res) => {
-  const settings = validateOpeningHours(req.body);
-  await pool.query(`
-    UPDATE configuracoes_agenda
-    SET dados = $1::jsonb, updated_at = NOW()
-    WHERE id = 1
-  `, [JSON.stringify(settings)]);
-  res.json(settings);
-}));
-// =====================================================
-// FOTOS DE CLIENTES E PRODUTOS
-// =====================================================
-const upload = security.upload;
-// =====================================================
-// STATUS DO SERVIDOR
-// =====================================================
-app.get('/api/status', (_req, res) => {
-  res.json({ status: 'Servidor AgendaPro rodando com sucesso!' });
-});
-app.get('/api/health', asyncHandler(async (_req, res) => {
-  await pool.query('SELECT 1');
-  res.json({
-    ok: true,
-    service: 'AgendaPro',
-    database: 'connected'
-  });
-}));
-// =====================================================
-// PROCEDIMENTOS
-// =====================================================
-app.get('/api/procedures', asyncHandler(async (_req, res) => {
-  const result = await pool.query(`
-    SELECT id, nome, preco
-    FROM procedimentos
-    WHERE ativo = TRUE
-    ORDER BY nome
-  `);
-  res.json(result.rows.map(item => ({
-    id: item.id,
-    name: item.nome,
-    price: Number(item.preco)
-  })));
-}));
-app.post('/api/procedures', auth, requireAdmin, asyncHandler(async (req, res) => {
-  const name = String(req.body?.name || '').trim();
-  const price = validMoney(req.body?.price);
-  if (!name || name.length > 150) {
-    fail('Informe um nome de até 150 caracteres.');
-  }
-  const result = await pool.query(`
-    INSERT INTO procedimentos(nome, preco)
-    VALUES($1, $2)
-    ON CONFLICT(nome)
-    DO UPDATE SET
-      preco = EXCLUDED.preco,
-      ativo = TRUE,
-      updated_at = NOW()
-    WHERE procedimentos.ativo = FALSE
-    RETURNING id, nome, preco
-  `, [name, price]);
-  if (!result.rowCount) {
-    fail('Este procedimento já está cadastrado. Use Alterar valor.', 409);
-  }
-  const item = result.rows[0];
-  res.status(201).json({
-    id: item.id,
-    name: item.nome,
-    price: Number(item.preco)
-  });
-}));
-app.patch('/api/procedures/:id/price', auth, requireAdmin, asyncHandler(async (req, res) => {
-  const id = validId(req.params.id, 'Procedimento');
-  const price = validMoney(req.body?.price);
-  const result = await pool.query(`
-    UPDATE procedimentos
-    SET preco = $1, updated_at = NOW()
-    WHERE id = $2 AND ativo = TRUE
-    RETURNING id, nome, preco
-  `, [price, id]);
-  if (!result.rowCount) fail('Procedimento não encontrado.', 404);
-  const item = result.rows[0];
-  res.json({
-    id: item.id,
-    name: item.nome,
-    price: Number(item.preco)
-  });
-}));
-app.delete('/api/procedures/:id', auth, requireAdmin, asyncHandler(async (req, res) => {
-  const id = validId(req.params.id, 'Procedimento');
-  await pool.query(`
-    UPDATE procedimentos
-    SET ativo = FALSE, updated_at = NOW()
-    WHERE id = $1
-  `, [id]);
-  res.json({ ok: true });
-}));
-// =====================================================
-// CLIENTES
-// =====================================================
-app.get('/api/clients', auth, asyncHandler(async (req, res) => {
-  const q = String(req.query.q || '').trim();
-  const result = await pool.query(`
-    SELECT
-      c.*,
-      COUNT(a.id)::int AS count,
-      COALESCE(SUM(
-        CASE WHEN a.status <> 'Cancelado' THEN a.valor ELSE 0 END
-      ), 0) AS total,
-      MAX(a.data) AS last
-    FROM clientes c
-    LEFT JOIN agendamentos a ON a.cliente_id = c.id
-    WHERE (c.ativo = TRUE OR $2::boolean)
-      AND (
-        $1 = ''
-        OR c.nome ILIKE '%' || $1 || '%'
-        OR c.telefone ILIKE '%' || $1 || '%'
-      )
-    GROUP BY c.id
-    ORDER BY MAX(a.data) DESC NULLS LAST, c.nome
-  `, [q, req.user.role === 'admin']);
-  res.json(result.rows.map(client => ({
-    ...publicClient(client),
-    count: client.count,
-    total: Number(client.total),
-    last: client.last
-  })));
-}));
-app.post('/api/clients', auth, upload.single('photo'), asyncHandler(async (req, res) => {
-  const name = String(req.body.name || '').trim();
-  const phone = normalizePhone(req.body.phone);
-  const note = String(req.body.note || '').trim();
-  if (!name || !phone) fail('Nome e telefone são obrigatórios.');
-  if (name.length > 150 || phone.length > 30) fail('Nome ou telefone muito longo.');
-  const photo = req.file ? `/uploads/${req.file.filename}` : null;
-  const result = await pool.query(`
-    INSERT INTO clientes(nome, telefone, foto_url, observacao)
-    VALUES($1, $2, $3, $4)
-    ON CONFLICT(telefone)
-    DO UPDATE SET
-      nome = EXCLUDED.nome,
-      foto_url = COALESCE(EXCLUDED.foto_url, clientes.foto_url),
-      observacao = EXCLUDED.observacao,
-      ativo = TRUE,
-      updated_at = NOW()
-    RETURNING *
-  `, [name, phone, photo, note]);
-  res.status(201).json(publicClient(result.rows[0]));
-}));
-app.delete('/api/clients/:id', auth, requireAdmin, asyncHandler(async (req, res) => {
-  const clientId = validId(req.params.id, 'Cliente');
-  await transaction(async db => {
-    const result = await db.query(
-      'SELECT id FROM clientes WHERE id = $1 FOR UPDATE',
-      [clientId]
+
+    $("openingHoursForm").addEventListener(
+      "submit",
+      saveOpeningHours
     );
-    if (!result.rowCount) fail('Cliente não encontrado.', 404);
-    const sales = await db.query(
-      'SELECT id FROM vendas WHERE cliente_id = $1 LIMIT 1',
-      [clientId]
+
+    $("openingHoursForm").addEventListener(
+      "input",
+      markAttendanceHoursDirty
     );
-    if (sales.rowCount) {
-      fail('Este cliente possui vendas registradas e não pode ser excluído.', 409);
+
+    $("addAttendanceTime").onclick = () => {
+      appendAttendanceTime("");
+      markAttendanceHoursDirty();
+
+      $("openingHoursDays")
+        .lastElementChild
+        .querySelector("input")
+        .focus();
+    };
+  }
+
+  $("editAvailableHours").hidden =
+    currentUser?.role !== "admin";
+
+  $("editAvailableHours").textContent =
+    "✏️ Alterar horários disponíveis";
+
+  panel.hidden = true;
+}
+
+function markAttendanceHoursDirty() {
+  openingHoursDirty = true;
+
+  $("openingHoursMessage").style.color =
+    "var(--muted)";
+
+  $("openingHoursMessage").textContent =
+    "Alterações ainda não salvas.";
+}
+
+function appendAttendanceTime(time) {
+  const row = document.createElement("div");
+  row.className = "attendance-row";
+
+  row.innerHTML = `
+    <label>
+      Horário disponível
+      <input
+        type="time"
+        step="60"
+        required
+        value="${esc(time)}"
+      >
+    </label>
+
+    <button
+      type="button"
+      class="btn danger btn-sm"
+    >
+      Remover
+    </button>
+  `;
+
+  row.querySelector("button").addEventListener(
+    "click",
+    () => {
+      row.remove();
+      markAttendanceHoursDirty();
     }
-    await db.query(
-      'SELECT id FROM agendamentos WHERE cliente_id = $1 FOR UPDATE',
-      [clientId]
-    );
-    await db.query(`
-      DELETE FROM atendimentos
-      WHERE cliente_id = $1
-        OR agendamento_id IN (
-          SELECT id FROM agendamentos WHERE cliente_id = $1
-        )
-    `, [clientId]);
-    await db.query(
-      'DELETE FROM agendamentos WHERE cliente_id = $1',
-      [clientId]
-    );
-    await db.query('DELETE FROM clientes WHERE id = $1', [clientId]);
-  }, true);
-  res.json({ ok: true });
-}));
-async function upsertClient(db, clientInfo) {
-  const name = String(clientInfo.name || '').trim();
-  const phone = normalizePhone(clientInfo.phone);
-  const note = String(clientInfo.note || '').trim();
-  if (!name || !phone) fail('Nome e telefone são obrigatórios.');
-  if (name.length > 150 || phone.length > 30) fail('Nome ou telefone muito longo.');
-  const result = await db.query(`
-    INSERT INTO clientes(nome, telefone, foto_url, observacao)
-    VALUES($1, $2, $3, $4)
-    ON CONFLICT(telefone)
-    DO UPDATE SET
-      nome = EXCLUDED.nome,
-      foto_url = COALESCE(EXCLUDED.foto_url, clientes.foto_url),
-      observacao = CASE
-        WHEN EXCLUDED.observacao <> '' THEN EXCLUDED.observacao
-        ELSE clientes.observacao
-      END,
-      ativo = TRUE,
-      updated_at = NOW()
-    RETURNING *
-  `, [name, phone, clientInfo.photo || null, note]);
-  return result.rows[0];
+  );
+
+  $("openingHoursDays").appendChild(row);
 }
-// =====================================================
-// NOTIFICAÇÕES E AGENDAMENTOS FUTUROS
-// =====================================================
-app.get('/api/notifications/today', auth, asyncHandler(async (req, res) => {
-  const date = validDate(req.query.date || salonToday());
-  const result = await pool.query(`
-    SELECT a.*, c.nome, c.telefone, p.nome AS procedimento
-    FROM agendamentos a
-    JOIN clientes c ON c.id = a.cliente_id
-    JOIN procedimentos p ON p.id = a.procedimento_id
-    WHERE a.data = $1
-      AND a.status NOT IN ('Cancelado', 'Atendido')
-    ORDER BY a.hora, a.id
-  `, [date]);
-  res.set('Cache-Control', 'no-store');
-  res.json({
-    date,
-    count: result.rowCount,
-    appointments: result.rows.map(publicAppointment)
-  });
-}));
-app.get('/api/appointments/upcoming', auth, asyncHandler(async (req, res) => {
-  const date = validDate(req.query.date || salonToday());
-  const result = await pool.query(`
-    SELECT a.*, c.nome, c.telefone, p.nome AS procedimento
-    FROM agendamentos a
-    JOIN clientes c ON c.id = a.cliente_id
-    JOIN procedimentos p ON p.id = a.procedimento_id
-    WHERE a.data > $1
-      AND a.status NOT IN ('Cancelado', 'Atendido')
-    ORDER BY a.data, a.hora, a.id
-  `, [date]);
-  res.set('Cache-Control', 'no-store');
-  res.json(result.rows.map(publicAppointment));
-}));
-app.get('/api/appointments', auth, asyncHandler(async (req, res) => {
-  const date = req.query.date ? validDate(req.query.date) : null;
-  const result = await pool.query(`
-    SELECT a.*, c.nome, c.telefone, p.nome AS procedimento
-    FROM agendamentos a
-    JOIN clientes c ON c.id = a.cliente_id
-    JOIN procedimentos p ON p.id = a.procedimento_id
-    WHERE ($1::date IS NULL OR a.data = $1::date)
-    ORDER BY a.data, a.hora, a.id
-  `, [date]);
-  res.set('Cache-Control', 'no-store');
-  res.json(result.rows.map(publicAppointment));
-}));
-// =====================================================
-// SINCRONIZAÇÃO DOS ATENDIMENTOS CONCLUÍDOS
-// =====================================================
-async function syncAttendance(db, appointment, userId) {
-  if (appointment.status !== 'Atendido') {
-    await db.query(
-      'DELETE FROM atendimentos WHERE agendamento_id = $1',
-      [appointment.id]
-    );
+
+function renderOpeningHoursEditor() {
+  if (
+    !$("openingHoursPanel") ||
+    currentUser?.role !== "admin" ||
+    !openingHours ||
+    openingHoursDirty
+  ) {
     return;
   }
-  await db.query(`
-    INSERT INTO atendimentos(
-      agendamento_id,
-      cliente_id,
-      procedimento_id,
-      data,
-      valor,
-      observacao,
-      atendido_por
-    )
-    VALUES($1, $2, $3, $4, $5, $6, $7)
-    ON CONFLICT (agendamento_id)
-      WHERE agendamento_id IS NOT NULL
-    DO UPDATE SET
-      cliente_id = EXCLUDED.cliente_id,
-      procedimento_id = EXCLUDED.procedimento_id,
-      data = EXCLUDED.data,
-      valor = EXCLUDED.valor,
-      observacao = EXCLUDED.observacao,
-      atendido_por = COALESCE(
-        atendimentos.atendido_por,
-        EXCLUDED.atendido_por
-      ),
-      updated_at = NOW()
-  `, [
-    appointment.id,
-    appointment.cliente_id,
-    appointment.procedimento_id,
-    appointment.data,
-    appointment.valor,
-    appointment.observacao,
-    userId
-  ]);
+
+  $("openingHoursDays").innerHTML = "";
+
+  openingSlots(openingHours, localDate())
+    .forEach(appendAttendanceTime);
+
+  $("saveOpeningHours").disabled = false;
+  $("addAttendanceTime").disabled = false;
 }
+
+async function saveOpeningHours(event) {
+  event.preventDefault();
+
+  const button = $("saveOpeningHours");
+
+  if (
+    button.disabled ||
+    currentUser?.role !== "admin"
+  ) {
+    return;
+  }
+
+  const message = $("openingHoursMessage");
+
+  const slots = Array.from(
+    $("openingHoursDays").querySelectorAll("input"),
+    input => input.value
+  );
+
+  if (
+    slots.some(
+      time => !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)
+    )
+  ) {
+    message.style.color = "var(--danger)";
+    message.textContent =
+      "Preencha todos os horários antes de salvar.";
+    return;
+  }
+
+  if (new Set(slots).size !== slots.length) {
+    message.style.color = "var(--danger)";
+    message.textContent =
+      "Existem horários repetidos. Remova a repetição.";
+    return;
+  }
+
+  const controls = Array.from(
+    $("openingHoursForm").querySelectorAll(
+      "input, button"
+    )
+  );
+
+  controls.forEach(control => {
+    control.disabled = true;
+  });
+
+  button.textContent = "Salvando...";
+  message.textContent = "";
+
+  try {
+    openingHours = await api("/api/opening-hours", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ slots })
+    });
+
+    openingHoursDirty = false;
+
+    renderOpeningHoursEditor();
+    fillTimes();
+    renderAll();
+
+    message.style.color = "var(--success)";
+    message.textContent =
+      "Horários salvos! Essa lista será usada todos os dias.";
+  } catch (error) {
+    message.style.color = "var(--danger)";
+    message.textContent = error.message;
+  } finally {
+    controls.forEach(control => {
+      control.disabled = false;
+    });
+
+    button.textContent = "Salvar horários";
+  }
+}
+
+// =====================================================
+// LOGIN E ACESSO
+// =====================================================
+
+function selectRole(role) {
+  if (role === "cliente") {
+    currentUser = { role: "cliente" };
+    enterApp();
+    return;
+  }
+  if (role === "compras") {
+    currentUser = { role: "compras" };
+    enterApp();
+    return;
+  }
+
+  pendingRole = role;
+
+  $("roleSelect").style.display = "none";
+  $("loginForm").style.display = "block";
+
+  $("loginRoleLabel").textContent =
+    (
+      role === "admin"
+        ? "Entrando como Administrador"
+        : "Entrando como Funcionário"
+    ) +
+    " — " +
+    roleEmail(role);
+
+  $("loginPassword").value = "";
+  $("loginError").textContent = "";
+  $("loginPassword").focus();
+}
+
+function backToRoles() {
+  pendingRole = null;
+
+  $("loginForm").style.display = "none";
+  $("roleSelect").style.display = "block";
+}
+
+function roleEmail(role) {
+  return role === "admin"
+    ? "admin@agendapro.local"
+    : "funcionario@agendapro.local";
+}
+
+$("loginForm").addEventListener(
+  "submit",
+  async event => {
+    event.preventDefault();
+
+    try {
+      const data = await api("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          email: roleEmail(pendingRole),
+          password: $("loginPassword").value,
+          role: pendingRole
+        })
+      });
+
+      currentUser = data.user;
+      enterApp();
+    } catch (error) {
+      $("loginError").textContent = error.message;
+    }
+  }
+);
+
+async function logout() {
+  clearInterval(liveTimer);
+
+  liveTimer = null;
+  refreshSequence++;
+  refreshBusy = false;
+  notificationDate = "";
+  notifiedIds = new Set();
+
+  clearTimeout(toastTimer);
+
+  if ($("dailyDialog")?.open) {
+    $("dailyDialog").close();
+  }
+
+  if ($("returnDialog")?.open) {
+    $("returnDialog").close();
+  }
+
+  if ($("dailyToast")) {
+    $("dailyToast").hidden = true;
+  }
+
+  if (currentUser?.role !== "cliente") {
+    await api("/api/auth/logout", {
+      method: "POST"
+    }).catch(() => {});
+  }
+
+  currentUser = null;
+  appointments = [];
+  clients = [];
+  openingHoursDirty = false;
+
+  closeModal();
+
+  $("app").style.display = "none";
+  $("clientPage").style.display = "none";
+  $("authScreen").style.display = "flex";
+
+  backToRoles();
+}
+
+function enterApp() {
+  $("authScreen").style.display = "none";
+
+  if (currentUser.role === "cliente") {
+    $("app").style.display = "none";
+    $("clientPage").style.display = "block";
+    if ($("comprasPage")) $("comprasPage").style.display = "none";
+    initClientPage();
+    return;
+  }
+
+  if (currentUser.role === "compras") {
+    $("app").style.display = "none";
+    $("clientPage").style.display = "none";
+    if ($("comprasPage")) $("comprasPage").style.display = "block";
+    initComprasPage();
+    return;
+  }
+
+  $("clientPage").style.display = "none";
+  if ($("comprasPage")) $("comprasPage").style.display = "none";
+  $("app").style.display = "flex";
+
+  initAdminApp();
+}
+
+// =====================================================
+// NAVEGAÇÃO
+// =====================================================
+
+function navItemsFor(role) {
+  return [
+    {
+      id: "dashboard",
+      label: "🏠 Dashboard",
+      roles: ["admin", "funcionario"]
+    },
+    {
+      id: "agenda",
+      label: "📅 Agenda",
+      roles: ["admin", "funcionario"]
+    },
+    {
+      id: "atendimentos",
+      label: "🔄 Atendimentos",
+      roles: ["admin", "funcionario"]
+    },
+    {
+      id: "clientes",
+      label: "👥 Clientes",
+      roles: ["admin", "funcionario"]
+    },
+    {
+      id: "procedimentos",
+      label: "🧾 Procedimentos",
+      roles: ["admin"]
+    },
+    {
+      id: "relatorios",
+      label: "📊 Relatórios",
+      roles: ["admin"]
+    },
+    {
+      id: "configuracoes",
+      label: "⚙️ Configurações",
+      roles: ["admin", "funcionario"]
+    }
+  ].filter(item => item.roles.includes(role));
+}
+
+function renderNav() {
+  const items = navItemsFor(currentUser.role);
+
+  const mainItems = items.filter(
+    item => item.id !== "configuracoes"
+  );
+
+  document.querySelector(".nav").innerHTML =
+    mainItems.map(item => `
+      <button data-section="${item.id}">
+        ${item.label}
+      </button>
+    `).join("");
+
+  document.querySelectorAll(".nav button")
+    .forEach(button => {
+      button.onclick = () => {
+        showSection(button.dataset.section);
+      };
+    });
+
+  const configButton = $("configNavBtn");
+
+  if (configButton) {
+    configButton.style.display = items.some(
+      item => item.id === "configuracoes"
+    ) ? "" : "none";
+
+    configButton.onclick = () => {
+      showSection("configuracoes");
+    };
+  }
+
+  $("userTag").textContent =
+    currentUser.role === "admin"
+      ? "👑 Administrador"
+      : "👤 Funcionário";
+
+  showSection(mainItems[0].id);
+}
+
+function showSection(id) {
+  if (
+    !currentUser ||
+    currentUser.role === "cliente"
+  ) {
+    return;
+  }
+
+  const allowedSections =
+    navItemsFor(currentUser.role)
+      .map(item => item.id);
+
+  if (!allowedSections.includes(id)) {
+    id = allowedSections[0];
+  }
+
+  document.querySelectorAll(".section")
+    .forEach(section => {
+      section.classList.remove("active");
+    });
+
+  $(id).classList.add("active");
+
+  document.querySelectorAll(".nav button")
+    .forEach(button => {
+      button.classList.toggle(
+        "active",
+        button.dataset.section === id
+      );
+    });
+
+  $("configNavBtn")?.classList.toggle(
+    "active",
+    id === "configuracoes"
+  );
+
+  renderAll();
+}
+
+// =====================================================
+// INICIALIZAÇÃO E ATUALIZAÇÃO
+// =====================================================
+
+async function initAdminApp() {
+  mountReturnUI();
+  mountDailyUI();
+  mountOpeningHoursPanel();
+  renderNav();
+
+  if ($("agendaDate")) {
+    $("agendaDate").value = localDate();
+  }
+
+  $("date").value = localDate();
+  fillTimes();
+
+  const today = localDate();
+
+  $("reportStartDate").value =
+    today.slice(0, 7) + "-01";
+
+  $("reportEndDate").value =
+    monthEnd(today);
+
+  await refreshData();
+  startLiveUpdates();
+}
+
+async function refreshData(options = {}) {
+  if (
+    !currentUser ||
+    currentUser.role === "cliente"
+  ) {
+    return false;
+  }
+
+  const sequence = ++refreshSequence;
+  const userId = currentUser.id;
+
+  refreshBusy = true;
+
+  try {
+    const data = await Promise.all([
+      api("/api/procedures"),
+      api("/api/clients"),
+      api("/api/appointments"),
+      api("/api/opening-hours")
+    ]);
+
+    if (
+      sequence !== refreshSequence ||
+      currentUser?.id !== userId
+    ) {
+      return false;
+    }
+
+    [
+      procedures,
+      clients,
+      appointments,
+      openingHours
+    ] = data;
+
+    appointments = appointments.map(appointment => ({
+      ...appointment,
+      date: String(
+        appointment.date || ""
+      ).slice(0, 10),
+      time: String(
+        appointment.time || ""
+      ).slice(0, 5)
+    }));
+
+    const today = localDate();
+
+    if (
+      lastDataDate &&
+      lastDataDate !== today &&
+      $("agendaDate")?.value === lastDataDate
+    ) {
+      $("agendaDate").value = today;
+    }
+
+    lastDataDate = today;
+
+    fillAllProcedureSelects();
+    fillTimes();
+    renderOpeningHoursEditor();
+    renderAll();
+
+    if ($("liveUpdateMessage")) {
+      $("liveUpdateMessage").textContent = "";
+    }
+
+    return true;
+  } catch (error) {
+    if (
+      sequence !== refreshSequence ||
+      currentUser?.id !== userId
+    ) {
+      return false;
+    }
+
+    if (options.silent) {
+      if ($("liveUpdateMessage")) {
+        $("liveUpdateMessage").textContent =
+          "Não foi possível atualizar agora. Tentaremos novamente.";
+      }
+    } else {
+      alert(error.message);
+    }
+
+    if (/sessão|autentic/i.test(error.message)) {
+      logout();
+    }
+
+    return false;
+  } finally {
+    if (sequence === refreshSequence) {
+      refreshBusy = false;
+    }
+  }
+}
+
+function startLiveUpdates() {
+  clearInterval(liveTimer);
+
+  if (
+    !currentUser ||
+    currentUser.role === "cliente"
+  ) {
+    return;
+  }
+
+  liveTimer = setInterval(() => {
+    if (
+      currentUser &&
+      currentUser.role !== "cliente" &&
+      !refreshBusy
+    ) {
+      refreshData({ silent: true });
+    }
+  }, 60000);
+}
+
+document.addEventListener(
+  "visibilitychange",
+  () => {
+    if (
+      document.visibilityState === "visible" &&
+      currentUser &&
+      currentUser.role !== "cliente" &&
+      !refreshBusy
+    ) {
+      refreshData({ silent: true });
+    }
+  }
+);
+
 // =====================================================
 // NOVO AGENDAMENTO
 // =====================================================
-app.post('/api/appointments', auth, asyncHandler(async (req, res) => {
-  const body = req.body || {};
-  const date = validDate(body.date);
-  const time = String(body.time || '');
-  const procedureId = validId(body.procedureId, 'Procedimento');
-  const status = body.status || 'Agendado';
-  if (openingMinutes(time) === null) fail('Horário inválido.');
-  if (!['Agendado', 'Confirmado', 'Atendido', 'Cancelado'].includes(status)) {
-    fail('Status inválido.');
-  }
-  const appointment = await transaction(async db => {
-    await assertOpeningSlot(db, date, time);
-    const countResult = await db.query(
-      "SELECT COUNT(*)::int FROM agendamentos WHERE data = $1 AND hora = $2 AND status <> 'Cancelado'",
-      [date, time]
-    );
-    if ((countResult.rows[0]?.count || 0) >= MAX_APPOINTMENTS_PER_SLOT) {
-      fail('Este horário já atingiu o limite de ' + MAX_APPOINTMENTS_PER_SLOT + ' atendimentos. Escolha outro horário.');
-    }
-    let customer;
-    if (body.clientId) {
-      const result = await db.query(
-        'SELECT * FROM clientes WHERE id = $1 AND ativo = TRUE FOR SHARE',
-        [validId(body.clientId, 'Cliente')]
-      );
-      if (!result.rowCount) fail('Cliente não encontrado.', 404);
-      customer = result.rows[0];
-    } else {
-      customer = await upsertClient(db, {
-        name: body.name,
-        phone: body.phone,
-        note: body.note
-      });
-    }
-    const procedure = await db.query(`
-      SELECT id, nome, preco
-      FROM procedimentos
-      WHERE id = $1 AND ativo = TRUE
-      FOR SHARE
-    `, [procedureId]);
-    if (!procedure.rowCount) fail('Procedimento inválido.');
-    const price = validMoney(body.price ?? procedure.rows[0].preco);
-    const result = await db.query(`
-      INSERT INTO agendamentos(
-        cliente_id, procedimento_id, data, hora,
-        valor, status, observacao, criado_por
-      )
-      VALUES($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING *
-    `, [
-      customer.id,
-      procedureId,
-      date,
-      time,
-      price,
-      status,
-      String(body.note || '').trim(),
-      req.user.id
-    ]);
-    await syncAttendance(db, result.rows[0], req.user.id);
-    return appointmentById(db, result.rows[0].id);
-  }, true);
-  res.status(201).json(appointment);
-}));
-// =====================================================
-// EDITAR AGENDAMENTO / ATENDIMENTO
-// =====================================================
-app.patch('/api/appointments/:id', auth, asyncHandler(async (req, res) => {
-  const id = validId(req.params.id, 'Agendamento');
-  const body = req.body || {};
-  const updated = await transaction(async db => {
-    const current = await db.query(
-      'SELECT * FROM agendamentos WHERE id = $1 FOR UPDATE',
-      [id]
-    );
-    if (!current.rowCount) fail('Agendamento não encontrado.', 404);
-    const previous = current.rows[0];
-    const clientId = validId(
-      body.clientId ?? previous.cliente_id,
-      'Cliente'
-    );
-    const procedureId = validId(
-      body.procedureId ?? previous.procedimento_id,
-      'Procedimento'
-    );
-    const date = validDate(body.date ?? previous.data);
-    const time = body.time === undefined
-      ? String(previous.hora).slice(0, 5)
-      : String(body.time);
-    if (openingMinutes(time) === null) fail('Horário inválido.');
-    const price = validMoney(body.price ?? previous.valor);
-    const status = body.status ?? previous.status;
-    if (!['Agendado', 'Confirmado', 'Atendido', 'Cancelado', 'Retorno'].includes(status)) {
-      fail('Status inválido.');
-    }
-    if (
-      status === 'Retorno' &&
-      !previous.agendamento_origem_id &&
-      previous.status !== 'Retorno'
-    ) {
-      fail('Use Agendar retorno para criar um retorno com data própria.');
-    }
-    const customer = await db.query(
-      'SELECT id FROM clientes WHERE id = $1 FOR SHARE',
-      [clientId]
-    );
-    if (!customer.rowCount) fail('Cliente não encontrado.', 404);
-    const procedure = await db.query(
-      'SELECT id, ativo FROM procedimentos WHERE id = $1 FOR SHARE',
-      [procedureId]
-    );
-    if (
-      !procedure.rowCount ||
-      (!procedure.rows[0].ativo && procedureId !== String(previous.procedimento_id))
-    ) {
-      fail('Escolha um procedimento ativo.');
-    }
-    const children = await db.query(
-      'SELECT * FROM agendamentos WHERE agendamento_origem_id = $1 FOR UPDATE',
-      [id]
-    );
-    if (
-      clientId !== String(previous.cliente_id) &&
-      (previous.agendamento_origem_id || children.rowCount)
-    ) {
-      fail('Este atendimento está vinculado a retornos. Não é possível trocar o cliente.');
-    }
-    if (previous.agendamento_origem_id && status !== 'Cancelado') {
-      const parent = await db.query(
-        'SELECT data, hora FROM agendamentos WHERE id = $1',
-        [previous.agendamento_origem_id]
-      );
-      if (
-        parent.rowCount &&
-        date + time <= parent.rows[0].data + String(parent.rows[0].hora).slice(0, 5)
-      ) {
-        fail('O retorno deve acontecer depois do atendimento original.');
-      }
-    }
-    if (children.rows.some(child =>
-      child.status !== 'Cancelado' &&
-      date + time >= child.data + String(child.hora).slice(0, 5)
-    )) {
-      fail('Esta data ficaria depois de um retorno vinculado. Ajuste primeiro a data do retorno.');
-    }
-    if (
-      status !== 'Cancelado' &&
-      (
-        date !== previous.data ||
-        time !== String(previous.hora).slice(0, 5)
-      )
-    ) {
-      await assertOpeningSlot(db, date, time);
-    }
-    const result = await db.query(`
-      UPDATE agendamentos
-      SET cliente_id = $1,
-          procedimento_id = $2,
-          data = $3,
-          hora = $4,
-          valor = $5,
-          status = $6,
-          observacao = $7,
-          updated_at = NOW()
-      WHERE id = $8
-      RETURNING *
-    `, [
-      clientId,
-      procedureId,
-      date,
-      time,
-      price,
-      status,
-      String(body.note ?? previous.observacao ?? '').trim(),
-      id
-    ]);
-    await syncAttendance(db, result.rows[0], req.user.id);
-    return appointmentById(db, id);
-  }, true);
-  res.json(updated);
-}));
-app.delete('/api/appointments/:id', auth, requireAdmin, asyncHandler(async (req, res) => {
-  const id = validId(req.params.id, 'Agendamento');
-  await transaction(async db => {
-    const current = await db.query(
-      'SELECT id FROM agendamentos WHERE id = $1 FOR UPDATE',
-      [id]
-    );
-    if (!current.rowCount) fail('Agendamento não encontrado.', 404);
-    await db.query(
-      'DELETE FROM atendimentos WHERE agendamento_id = $1',
-      [id]
-    );
-    await db.query('DELETE FROM agendamentos WHERE id = $1', [id]);
-  }, true);
-  res.json({ ok: true });
-}));
-app.patch('/api/appointments/:id/status', auth, asyncHandler(async (req, res) => {
-  const id = validId(req.params.id, 'Agendamento');
-  const status = req.body?.status;
-  if (!['Agendado', 'Confirmado', 'Atendido', 'Cancelado'].includes(status)) {
-    fail('Status inválido.');
-  }
-  await transaction(async db => {
-    const result = await db.query(`
-      UPDATE agendamentos
-      SET status = $1, updated_at = NOW()
-      WHERE id = $2
-      RETURNING *
-    `, [status, id]);
-    if (!result.rowCount) fail('Agendamento não encontrado.', 404);
-    await syncAttendance(db, result.rows[0], req.user.id);
-  }, true);
-  res.json({ ok: true });
-}));
-// =====================================================
-// AGENDAMENTO PÚBLICO
-// =====================================================
-const MAX_APPOINTMENTS_PER_SLOT = 3;
 
+function fillTimes() {
+  const select = $("time");
+  const previous = select.value;
+  const date = $("date").value || localDate();
+  const available = openingSlots(openingHours, date);
 
-// =====================================================
-// PRODUTOS PÚBLICOS (LOJA VIRTUAL)
-// =====================================================
-app.get('/api/public/products', asyncHandler(async (req, res) => {
-  const result = await pool.query(`
-    SELECT id, nome, descricao, foto_url, preco
-    FROM produtos
-    WHERE ativo = TRUE
-    ORDER BY nome
-  `);
-  res.set('Cache-Control', 'no-store');
-  res.json(result.rows.map(row => ({
-    id: row.id,
-    name: row.nome,
-    description: row.descricao || '',
-    photo: row.foto_url || null,
-    price: Number(row.preco)
-  })));
-}));
+  select.innerHTML =
+    '<option value="">' +
+    (
+      available.length
+        ? "Selecione"
+        : "Nenhum horário disponível"
+    ) +
+    "</option>" +
+    available.map(hour => `
+      <option value="${esc(hour)}">
+        ${esc(hour)}
+      </option>
+    `).join("");
 
-app.get('/api/public/slots', asyncHandler(async (req, res) => {
-  const date = validDate(req.query.date);
-  const settings = await readOpeningHours();
-  const result = await pool.query(`
-    SELECT hora
-    FROM agendamentos
-    WHERE data = $1 AND status <> 'Cancelado'
-    ORDER BY hora
-  `, [date]);
-  const bookingsByTime = result.rows.reduce((counts, row) => {
-    const time = String(row.hora).slice(0, 5);
-    counts[time] = (counts[time] || 0) + 1;
-    return counts;
-  }, {});
-  res.set('Cache-Control', 'no-store');
-  res.json({
-    date,
-    slots: openingSlots(settings, date),
-    allowMultipleBookings: true,
-    maxPerSlot: MAX_APPOINTMENTS_PER_SLOT,
-    taken: [],
-    bookingsByTime
-  });
-}));
-app.post('/api/public/bookings', upload.single('photo'), asyncHandler(async (req, res) => {
-  const body = req.body || {};
-  const date = validDate(body.date);
-  const time = String(body.time || '');
-  const procedureId = validId(body.procedureId, 'Procedimento');
-  if (openingMinutes(time) === null) fail('Horário inválido.');
-  const result = await transaction(async db => {
-    await assertOpeningSlot(db, date, time);
-    const countResult = await db.query(
-      "SELECT COUNT(*)::int FROM agendamentos WHERE data = $1 AND hora = $2 AND status <> 'Cancelado'",
-      [date, time]
-    );
-    if ((countResult.rows[0]?.count || 0) >= MAX_APPOINTMENTS_PER_SLOT) {
-      fail('Este horário já atingiu o limite de ' + MAX_APPOINTMENTS_PER_SLOT + ' atendimentos. Escolha outro horário.');
-    }
-    const procedure = await db.query(`
-      SELECT id, nome, preco
-      FROM procedimentos
-      WHERE id = $1 AND ativo = TRUE
-      FOR SHARE
-    `, [procedureId]);
-    if (!procedure.rowCount) fail('Procedimento inválido.');
-    const customer = await security.publicClient(db, body, req.file);
-    const inserted = await db.query(`
-      INSERT INTO agendamentos(
-        cliente_id, procedimento_id, data, hora,
-        valor, status, observacao
-      )
-      VALUES($1, $2, $3, $4, $5, 'Agendado', $6)
-      RETURNING id
-    `, [
-      customer.id,
-      procedureId,
-      date,
-      time,
-      validMoney(procedure.rows[0].preco),
-      String(body.note || '').trim()
-    ]);
-    return {
-      ok: true,
-      id: inserted.rows[0].id,
-      details: `${procedure.rows[0].nome} em ${date} às ${time}.`
-    };
-  }, true);
-  res.status(201).json(result);
-}));
-// =====================================================
-// VENDAS PÚBLICAS (COMPRAS DE CLIENTES)
-// =====================================================
-app.post('/api/public/sales', asyncHandler(async (req, res) => {
-  const body = req.body || {};
-  const name = String(body.name || '').trim();
-  const phone = normalizePhone(body.phone);
-  const items = body.items;
-
-  if (!name || !phone) fail('Nome e telefone são obrigatórios.');
-  if (!Array.isArray(items) || items.length === 0) fail('Adicione pelo menos um produto ao carrinho.');
-
-  const sale = await transaction(async db => {
-    // 1. Garantir que o cliente existe (upsert)
-    const customer = await upsertClient(db, { name, phone, note: 'Cliente via loja virtual' });
-
-    // 2. Criar a venda
-    const insertedSale = await db.query(`
-      INSERT INTO vendas(cliente_id, data, status, observacao)
-      VALUES($1, CURRENT_DATE, 'Confirmada', 'Compra via site/app')
-      RETURNING id
-    `, [customer.id]);
-    const saleId = insertedSale.rows[0].id;
-
-    // 3. Inserir os itens
-    for (const item of items) {
-      const productId = validId(item.productId, 'Produto');
-      const quantity = Number(item.quantity);
-      const unitPrice = validMoney(item.unitPrice);
-
-      if (!Number.isInteger(quantity) || quantity < 1) fail('Quantidade inválida.');
-
-      // Verificar se o produto existe e está ativo
-      const productCheck = await db.query(
-        'SELECT nome FROM produtos WHERE id = $1 AND ativo = TRUE',
-        [productId]
-      );
-      if (!productCheck.rowCount) fail('Produto indisponível: ' + productId);
-
-      await db.query(`
-        INSERT INTO venda_itens(venda_id, produto_id, produto_nome, quantidade, valor_unitario)
-        VALUES($1, $2, $3, $4, $5)
-      `, [saleId, productId, productCheck.rows[0].nome, quantity, unitPrice]);
-    }
-
-    return { ok: true, id: saleId };
-  }, true);
-
-  res.status(201).json(sale);
-}));
-// =====================================================
-// RETORNOS
-// =====================================================
-app.post('/api/appointments/:id/return', auth, asyncHandler(async (req, res) => {
-  const originalId = validId(req.params.id, 'Atendimento original');
-  const body = req.body || {};
-  const date = validDate(body.date);
-  const time = String(body.time || '');
-  if (openingMinutes(time) === null) fail('Horário inválido.');
-  const appointment = await transaction(async db => {
-    const sourceResult = await db.query(
-      'SELECT * FROM agendamentos WHERE id = $1 FOR UPDATE',
-      [originalId]
-    );
-    if (!sourceResult.rowCount) fail('Atendimento original não encontrado.', 404);
-    const source = sourceResult.rows[0];
-    if (source.status === 'Cancelado') {
-      fail('Escolha um atendimento que não esteja cancelado.');
-    }
-    if (date + time <= source.data + String(source.hora).slice(0, 5)) {
-      fail('O retorno deve acontecer depois do atendimento original.');
-    }
-    const existing = await db.query(`
-      SELECT id
-      FROM agendamentos
-      WHERE agendamento_origem_id = $1
-        AND status NOT IN ('Cancelado', 'Atendido')
-      LIMIT 1
-    `, [originalId]);
-    if (existing.rowCount) {
-      fail('Já existe um retorno agendado. Edite ou cancele o retorno anterior.', 409);
-    }
-    const procedureId = validId(
-      body.procedureId || source.procedimento_id,
-      'Procedimento'
-    );
-    const proceduresResult = await db.query(`
-      SELECT id, preco
-      FROM procedimentos
-      WHERE id = $1 AND ativo = TRUE
-      FOR SHARE
-    `, [procedureId]);
-    if (!proceduresResult.rowCount) fail('Selecione um procedimento ativo.');
-    const procedure = proceduresResult.rows[0];
-    const price = validMoney(
-      body.price === undefined || body.price === null || body.price === ''
-        ? procedure.preco
-        : body.price
-    );
-    await assertOpeningSlot(db, date, time);
-    const inserted = await db.query(`
-      INSERT INTO agendamentos(
-        cliente_id, procedimento_id, data, hora, valor,
-        status, observacao, criado_por, agendamento_origem_id
-      )
-      VALUES($1, $2, $3, $4, $5, 'Retorno', $6, $7, $8)
-      RETURNING id
-    `, [
-      source.cliente_id,
-      procedureId,
-      date,
-      time,
-      price,
-      String(body.note || '').trim(),
-      req.user.id,
-      source.id
-    ]);
-    return appointmentById(db, inserted.rows[0].id);
-  }, true);
-  res.status(201).json(appointment);
-}));
-// =====================================================
-// PRODUTOS DO SALÃO: NOME, PREÇO E FOTO
-// =====================================================
-app.get('/api/products', auth, asyncHandler(async (req, res) => {
-  const includeInactive =
-    req.user.role === 'admin' &&
-    req.query.includeInactive === 'true';
-  const result = await pool.query(`
-    SELECT *
-    FROM produtos
-    WHERE ativo = TRUE OR $1::boolean
-    ORDER BY nome
-  `, [includeInactive]);
-  res.json(result.rows.map(publicProduct));
-}));
-app.post(
-  '/api/products',
-  auth,
-  requireAdmin,
-  upload.single('photo'),
-  asyncHandler(async (req, res) => {
-    const name = String(req.body?.name || '').trim();
-    const price = validMoney(req.body?.price);
-    const description = String(req.body?.description || '').trim();
-    const photo = req.file ? `/uploads/${req.file.filename}` : null;
-    if (!name || name.length > 150) {
-      fail('Informe o nome do produto, com até 150 caracteres.');
-    }
-    const result = await pool.query(`
-      INSERT INTO produtos(
-        nome, descricao, preco, criado_por, foto_url
-      )
-      VALUES($1, $2, $3, $4, $5)
-      ON CONFLICT(nome)
-      DO UPDATE SET
-        descricao = EXCLUDED.descricao,
-        preco = EXCLUDED.preco,
-        foto_url = COALESCE(EXCLUDED.foto_url, produtos.foto_url),
-        ativo = TRUE,
-        updated_at = NOW()
-      WHERE produtos.ativo = FALSE
-      RETURNING *
-    `, [name, description, price, req.user.id, photo]);
-    if (!result.rowCount) {
-      fail('Produto já cadastrado. Use Editar.', 409);
-    }
-    res.status(201).json(publicProduct(result.rows[0]));
-  })
-);
-app.patch(
-  '/api/products/:id',
-  auth,
-  requireAdmin,
-  upload.single('photo'),
-  asyncHandler(async (req, res) => {
-    const id = validId(req.params.id, 'Produto');
-    const body = req.body || {};
-    const product = await transaction(async db => {
-      const current = await db.query(
-        'SELECT * FROM produtos WHERE id = $1 FOR UPDATE',
-        [id]
-      );
-      if (!current.rowCount) fail('Produto não encontrado.', 404);
-      const previous = current.rows[0];
-      const name = String(body.name ?? previous.nome).trim();
-      if (!name || name.length > 150) fail('Nome de produto inválido.');
-      let active = previous.ativo;
-      if (body.active !== undefined) {
-        if (body.active === true || body.active === 'true') {
-          active = true;
-        } else if (body.active === false || body.active === 'false') {
-          active = false;
-        } else {
-          fail('Situação do produto inválida.');
-        }
-      }
-      const photo = req.file
-        ? `/uploads/${req.file.filename}`
-        : previous.foto_url;
-      const result = await db.query(`
-        UPDATE produtos
-        SET nome = $1,
-            descricao = $2,
-            preco = $3,
-            ativo = $4,
-            foto_url = $6,
-            updated_at = NOW()
-        WHERE id = $5
-        RETURNING *
-      `, [
-        name,
-        String(body.description ?? previous.descricao ?? '').trim(),
-        validMoney(body.price ?? previous.preco),
-        active,
-        id,
-        photo
-      ]);
-      return publicProduct(result.rows[0]);
-    });
-    res.json(product);
-  })
-);
-app.delete('/api/products/:id', auth, requireAdmin, asyncHandler(async (req, res) => {
-  const id = validId(req.params.id, 'Produto');
-  const result = await pool.query(`
-    UPDATE produtos
-    SET ativo = FALSE, updated_at = NOW()
-    WHERE id = $1
-    RETURNING id
-  `, [id]);
-  if (!result.rowCount) fail('Produto não encontrado.', 404);
-  res.json({ ok: true });
-}));
-// =====================================================
-// VENDAS DE PRODUTOS
-// =====================================================
-function salesRange(query) {
-  const start = query.start ? validDate(query.start) : null;
-  const end = query.end ? validDate(query.end) : null;
-  if (start && end && start > end) {
-    fail('A data inicial deve ser anterior ou igual à data final.');
-  }
-  return [start, end];
+  select.value =
+    available.includes(previous)
+      ? previous
+      : "";
 }
-async function readSales(
-  db,
-  start = null,
-  end = null,
-  id = null,
-  filters = {}
+
+$("date").addEventListener("change", fillTimes);
+
+function resetBookingClient() {
+  bookingClientId = null;
+
+  $("name").readOnly = false;
+  $("phone").readOnly = false;
+  $("price").readOnly = false;
+
+  if ($("bookingClientNotice")) {
+    $("bookingClientNotice").hidden = true;
+  }
+}
+
+function openModal(
+  date = localDate(),
+  time = ""
 ) {
-  const result = await db.query(`
-    SELECT
-      v.*,
-      c.nome AS cliente_nome,
-      c.telefone,
-      COALESCE(SUM(i.quantidade * i.valor_unitario), 0) AS total,
-      COALESCE(
-        jsonb_agg(
-          jsonb_build_object(
-            'id', i.id::text,
-            'productId', i.produto_id::text,
-            'name', i.produto_nome,
-            'quantity', i.quantidade,
-            'unitPrice', i.valor_unitario,
-            'total', i.quantidade * i.valor_unitario
-          )
-          ORDER BY i.id
-        ) FILTER (WHERE i.id IS NOT NULL),
-        '[]'::jsonb
-      ) AS items
-    FROM vendas v
-    JOIN clientes c ON c.id = v.cliente_id
-    LEFT JOIN venda_itens i ON i.venda_id = v.id
-    WHERE ($1::date IS NULL OR v.data >= $1::date)
-      AND ($2::date IS NULL OR v.data <= $2::date)
-      AND ($3::bigint IS NULL OR v.id = $3::bigint)
-      AND ($4::bigint IS NULL OR v.cliente_id = $4::bigint)
-      AND (
-        $5::bigint IS NULL
-        OR EXISTS (
-          SELECT 1
-          FROM venda_itens f
-          WHERE f.venda_id = v.id
-            AND f.produto_id = $5::bigint
-        )
-      )
-      AND ($6::text IS NULL OR v.status = $6::text)
-    GROUP BY v.id, c.id
-    ORDER BY v.data DESC, v.id DESC
-  `, [
-    start,
-    end,
-    id,
-    filters.clientId || null,
-    filters.productId || null,
-    filters.status || null
-  ]);
-  return result.rows.map(row => ({
-    id: row.id,
-    clientId: row.cliente_id,
-    name: row.cliente_nome,
-    phone: row.telefone,
-    date: row.data,
-    status: row.status,
-    note: row.observacao || '',
-    total: Number(row.total),
-    items: row.items,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  }));
+  if (appointmentSaving) return;
+
+  resetBookingClient();
+  $("appointmentForm").reset();
+
+  $("status").innerHTML =
+    "<option>Confirmado</option>" +
+    "<option>Cancelado</option>";
+
+  $("date").value = date;
+
+  fillAllProcedureSelects();
+
+  $("procedure").value = "";
+  $("price").value = "";
+
+  fillTimes();
+
+  $("time").value = time;
+  $("modal").classList.add("show");
 }
-async function insertSaleItems(db, saleId, items) {
+
+function openClientAppointment(id) {
   if (
-    !Array.isArray(items) ||
-    items.length < 1 ||
-    items.length > 100
+    appointmentSaving ||
+    !currentUser ||
+    currentUser.role === "cliente"
   ) {
-    fail('Inclua de 1 a 100 itens na venda.');
+    return;
   }
-  const ids = items.map(item => validId(item?.productId, 'Produto'));
-  const products = await db.query(`
-    SELECT *
-    FROM produtos
-    WHERE id = ANY($1::bigint[])
-    ORDER BY id
-    FOR SHARE
-  `, [ids]);
-  const byId = new Map(
-    products.rows.map(product => [String(product.id), product])
+
+  const client = clients.find(
+    item => String(item.id) === String(id)
   );
-  let totalCents = 0;
-  const normalized = items.map((item, index) => {
-    const product = byId.get(ids[index]);
-    if (!product || !product.ativo) {
-      fail('Um produto não está disponível. Atualize a lista.');
-    }
-    const quantity = Number(item.quantity);
-    if (
-      !Number.isInteger(quantity) ||
-      quantity < 1 ||
-      quantity > 10000
-    ) {
-      fail('A quantidade deve ser um número inteiro de 1 a 10000.');
-    }
-    const unitPrice = validMoney(item.unitPrice ?? product.preco);
-    totalCents += Math.round(unitPrice * 100) * quantity;
-    if (
-      !Number.isSafeInteger(totalCents) ||
-      totalCents > 9999999999
-    ) {
-      fail('O total da venda não pode ultrapassar R$ 99.999.999,99.');
-    }
-    return { product, quantity, unitPrice };
-  });
-  for (const item of normalized) {
-    await db.query(`
-      INSERT INTO venda_itens(
-        venda_id,
-        produto_id,
-        produto_nome,
-        quantidade,
-        valor_unitario
-      )
-      VALUES($1, $2, $3, $4, $5)
-    `, [
-      saleId,
-      item.product.id,
-      item.product.nome,
-      item.quantity,
-      item.unitPrice
-    ]);
+
+  if (!client) {
+    alert("Cliente não encontrado. Atualize a lista.");
+    return;
   }
+
+  openModal();
+
+  bookingClientId = String(client.id);
+
+  $("name").value = client.name;
+  $("phone").value = client.phone;
+
+  $("name").readOnly = true;
+  $("phone").readOnly = true;
+  $("price").readOnly = true;
+
+  let notice = $("bookingClientNotice");
+
+  if (!notice) {
+    notice = document.createElement("p");
+    notice.id = "bookingClientNotice";
+    notice.className = "booking-client-notice";
+
+    $("appointmentForm").prepend(notice);
+  }
+
+  notice.textContent =
+    "Agendamento para " + client.name +
+    ". Escolha procedimento, data e horário. " +
+    "O valor é preenchido automaticamente; a observação é opcional.";
+
+  notice.hidden = false;
+
+  requestAnimationFrame(() => {
+    $("procedure").focus();
+  });
 }
-// Histórico com filtros por data, cliente, produto e situação.
-app.get('/api/sales', auth, asyncHandler(async (req, res) => {
-  const [start, end] = salesRange(req.query);
-  const filters = {
-    clientId: req.query.clientId
-      ? validId(req.query.clientId, 'Cliente')
-      : null,
-    productId: req.query.productId
-      ? validId(req.query.productId, 'Produto')
-      : null,
-    status: req.query.status || null
-  };
-  if (
-    filters.status &&
-    !['Confirmada', 'Cancelada'].includes(filters.status)
-  ) {
-    fail('Status inválido.');
-  }
-  res.set('Cache-Control', 'no-store');
-  res.json(await readSales(pool, start, end, null, filters));
-}));
-// Registra uma venda para cliente já cadastrado.
-app.post('/api/sales', auth, asyncHandler(async (req, res) => {
-  const body = req.body || {};
-  const clientId = validId(body.clientId, 'Cliente');
-  const date = validDate(body.date);
-  const status = body.status ?? 'Confirmada';
-  if (!['Confirmada', 'Cancelada'].includes(status)) {
-    fail('Status da venda inválido.');
-  }
-  const sale = await transaction(async db => {
-    const customer = await db.query(`
-      SELECT id
-      FROM clientes
-      WHERE id = $1 AND ativo = TRUE
-      FOR SHARE
-    `, [clientId]);
-    if (!customer.rowCount) {
-      fail('Escolha um cliente cadastrado e ativo.');
-    }
-    const inserted = await db.query(`
-      INSERT INTO vendas(
-        cliente_id, data, status, observacao, criado_por
-      )
-      VALUES($1, $2, $3, $4, $5)
-      RETURNING id
-    `, [
-      clientId,
-      date,
-      status,
-      String(body.note || '').trim(),
-      req.user.id
-    ]);
-    const id = inserted.rows[0].id;
-    await insertSaleItems(db, id, body.items);
-    return (await readSales(db, null, null, id))[0];
-  });
-  res.status(201).json(sale);
-}));
-// Edita data, cliente, observação, situação e itens de uma venda.
-app.patch('/api/sales/:id', auth, asyncHandler(async (req, res) => {
-  const id = validId(req.params.id, 'Venda');
-  const body = req.body || {};
-  const sale = await transaction(async db => {
-    const current = await db.query(
-      'SELECT * FROM vendas WHERE id = $1 FOR UPDATE',
-      [id]
-    );
-    if (!current.rowCount) fail('Venda não encontrada.', 404);
-    const previous = current.rows[0];
-    const clientId = validId(
-      body.clientId ?? previous.cliente_id,
-      'Cliente'
-    );
-    const date = validDate(body.date ?? previous.data);
-    const status = body.status ?? previous.status;
-    if (!['Confirmada', 'Cancelada'].includes(status)) {
-      fail('Status da venda inválido.');
-    }
-    const customer = await db.query(
-      'SELECT id, ativo FROM clientes WHERE id = $1 FOR SHARE',
-      [clientId]
-    );
+
+function closeModal() {
+  $("modal").classList.remove("show");
+  $("appointmentForm").reset();
+  $("date").value = localDate();
+
+  resetBookingClient();
+}
+
+$("appointmentForm").addEventListener(
+  "submit",
+  async event => {
+    event.preventDefault();
+
+    if (appointmentSaving) return;
+
+    const bookingClient =
+      bookingClientId === null
+        ? null
+        : clients.find(
+            item => String(item.id) === bookingClientId
+          );
+
     if (
-      !customer.rowCount ||
-      (
-        !customer.rows[0].ativo &&
-        clientId !== String(previous.cliente_id)
-      )
+      bookingClientId !== null &&
+      !bookingClient
     ) {
-      fail('Cliente inválido.');
-    }
-    await db.query(`
-      UPDATE vendas
-      SET cliente_id = $1,
-          data = $2,
-          status = $3,
-          observacao = $4,
-          updated_by = $5,
-          updated_at = NOW()
-      WHERE id = $6
-    `, [
-      clientId,
-      date,
-      status,
-      String(body.note ?? previous.observacao ?? '').trim(),
-      req.user.id,
-      id
-    ]);
-    if (body.items !== undefined) {
-      await db.query(
-        'DELETE FROM venda_itens WHERE venda_id = $1',
-        [id]
+      alert(
+        "Este cliente não está mais na lista. " +
+        "Feche o formulário e atualize os clientes."
       );
-      await insertSaleItems(db, id, body.items);
+
+      return;
     }
-    return (await readSales(db, null, null, id))[0];
-  });
-  res.json(sale);
-}));
-// Cancela ou confirma sem apagar o histórico.
-app.patch('/api/sales/:id/status', auth, asyncHandler(async (req, res) => {
-  const id = validId(req.params.id, 'Venda');
-  const status = req.body?.status;
-  if (!['Confirmada', 'Cancelada'].includes(status)) {
-    fail('Status da venda inválido.');
+
+    appointmentSaving = true;
+
+    const submit =
+      event.currentTarget.querySelector(
+        'button[type="submit"], button:not([type])'
+      );
+
+    if (submit) submit.disabled = true;
+
+    try {
+      await api("/api/appointments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          name: bookingClient
+            ? bookingClient.name
+            : $("name").value.trim(),
+
+          phone: bookingClient
+            ? bookingClient.phone
+            : $("phone").value.trim(),
+
+          date: $("date").value,
+          time: $("time").value,
+          procedureId: $("procedure").value,
+          price: Number($("price").value),
+          status: $("status").value,
+          note: $("note").value.trim()
+        })
+      });
+
+      closeModal();
+      await refreshData();
+
+      alert("Agendamento salvo com sucesso!");
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      appointmentSaving = false;
+
+      if (submit) {
+        submit.disabled = false;
+      }
+    }
   }
-  const result = await pool.query(`
-    UPDATE vendas
-    SET status = $1,
-        updated_by = $2,
-        updated_at = NOW()
-    WHERE id = $3
-    RETURNING id
-  `, [status, req.user.id, id]);
-  if (!result.rowCount) fail('Venda não encontrada.', 404);
-  res.json({ ok: true });
-}));
-// =====================================================
-// FINANCEIRO
-//
-// Mantém a regra atual dos serviços:
-// agendamentos não cancelados entram no total.
-//
-// Produtos: somente vendas confirmadas.
-// Não soma a tabela atendimentos novamente.
-// =====================================================
-async function financialData(start, end) {
-  const result = await pool.query(`
-    WITH servicos AS (
-      SELECT
-        COALESCE(
-          SUM(valor) FILTER (WHERE status <> 'Cancelado'),
-          0
-        ) AS total,
-        COUNT(*) FILTER (
-          WHERE status <> 'Cancelado'
-        )::int AS quantidade
-      FROM agendamentos
-      WHERE data BETWEEN $1::date AND $2::date
-    ),
-    vendas_por_id AS (
-      SELECT
-        v.id,
-        COALESCE(
-          SUM(i.quantidade * i.valor_unitario),
-          0
-        ) AS total
-      FROM vendas v
-      LEFT JOIN venda_itens i ON i.venda_id = v.id
-      WHERE v.data BETWEEN $1::date AND $2::date
-        AND v.status = 'Confirmada'
-      GROUP BY v.id
+);
+
+$("procedure").addEventListener(
+  "change",
+  event => {
+    const procedure = procedures.find(
+      item =>
+        String(item.id) === String(event.target.value)
+    );
+
+    $("price").value =
+      procedure ? procedure.price : "";
+  }
+);
+
+if ($("phone")) {
+  $("phone").addEventListener("input", () => {
+    $("phone").value =
+      $("phone").value.replace(/\D/g, "");
+  });
+}
+
+function fillProcedureSelect(
+  element,
+  withPrice = false
+) {
+  if (!element) return;
+
+  const previous = element.value;
+
+  element.innerHTML =
+    '<option value="">Selecione</option>' +
+    procedures.map(procedure => `
+      <option
+        value="${esc(procedure.id)}"
+        data-price="${esc(procedure.price)}"
+      >
+        ${esc(procedure.name)}
+        ${withPrice ? ` — ${money(procedure.price)}` : ""}
+      </option>
+    `).join("");
+
+  if (
+    [...element.options].some(
+      option => option.value === previous
     )
-    SELECT
-      servicos.total AS servicos_total,
-      servicos.quantidade,
-      COALESCE(
-        (SELECT SUM(total) FROM vendas_por_id),
-        0
-      ) AS produtos_total,
-      (
-        SELECT COUNT(*)::int FROM vendas_por_id
-      ) AS vendas_quantidade,
-      servicos.total + COALESCE(
-        (SELECT SUM(total) FROM vendas_por_id),
-        0
-      ) AS total
-    FROM servicos
-  `, [start, end]);
-  const row = result.rows[0];
+  ) {
+    element.value = previous;
+  }
+}
+
+function fillAllProcedureSelects() {
+  fillProcedureSelect($("procedure"), false);
+  fillProcedureSelect($("clientProcedure"), true);
+}
+
+function renderAll() {
+  if (
+    !currentUser ||
+    currentUser.role === "cliente"
+  ) {
+    return;
+  }
+
+  renderDashboard();
+  renderAgenda();
+  renderClients();
+  renderAttendances();
+  renderDailyUI();
+  refreshVisibleFilters();
+
+  if (currentUser.role === "admin") {
+    renderReports();
+    renderProcedures();
+  }
+}
+
+function validSales(appointment) {
+  return appointment.status !== "Cancelado";
+}
+
+function pendingAppointment(appointment) {
+  return !["Cancelado", "Atendido"].includes(
+    appointment.status
+  );
+}
+
+function periodTotals(start, end) {
+  const filtered = appointments.filter(
+    appointment =>
+      validSales(appointment) &&
+      appointment.date >= start &&
+      appointment.date <= end
+  );
+
   return {
-    start,
-    end,
-    serviceRevenue: Number(row.servicos_total),
-    productRevenue: Number(row.produtos_total),
-    revenue: Number(row.total),
-    totalRevenue: Number(row.total),
-    appointmentCount: row.quantidade,
-    salesCount: row.vendas_quantidade
+    revenue: filtered.reduce(
+      (total, appointment) =>
+        total + Number(appointment.price),
+      0
+    ),
+    count: filtered.length
   };
 }
-function lastDayOfMonth(date) {
-  const [year, month] = date.split('-').map(Number);
-  const day = String(
-    new Date(Date.UTC(year, month, 0)).getUTCDate()
-  ).padStart(2, '0');
-  return date.slice(0, 7) + '-' + day;
+
+function startWeek(dateValue) {
+  const date = new Date(
+    dateValue + "T12:00:00"
+  );
+
+  const weekday = date.getDay();
+
+  date.setDate(
+    date.getDate() -
+    (weekday === 0 ? 6 : weekday - 1)
+  );
+
+  return date.toISOString().slice(0, 10);
 }
-app.get('/api/financial/summary', auth, requireAdmin, asyncHandler(async (req, res) => {
-  const today = salonToday();
-  const day = new Date(today + 'T12:00:00Z');
-  day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7));
-  const weekStart = day.toISOString().slice(0, 10);
-  day.setUTCDate(day.getUTCDate() + 6);
-  const weekEnd = day.toISOString().slice(0, 10);
-  const [start, end] = salesRange(req.query);
-  if ((start && !end) || (!start && end)) {
-    fail('Informe as duas datas do período.');
+
+function endWeek(dateValue) {
+  const date = new Date(
+    startWeek(dateValue) + "T12:00:00"
+  );
+
+  date.setDate(date.getDate() + 6);
+
+  return date.toISOString().slice(0, 10);
+}
+
+function todayAppointments() {
+  const today = localDate();
+
+  return appointments
+    .filter(appointment =>
+      appointment.date === today &&
+      pendingAppointment(appointment)
+    )
+    .sort((a, b) =>
+      a.time.localeCompare(b.time)
+    );
+}
+
+function futureAppointments() {
+  const today = localDate();
+
+  return appointments
+    .filter(appointment =>
+      appointment.date > today &&
+      pendingAppointment(appointment)
+    )
+    .sort((a, b) =>
+      (a.date + a.time)
+        .localeCompare(b.date + b.time)
+    );
+}
+
+// =====================================================
+// DASHBOARD
+// =====================================================
+
+function renderDashboard() {
+  const today = localDate();
+
+  const week = periodTotals(
+    startWeek(today),
+    endWeek(today)
+  );
+
+  const month = periodTotals(
+    today.slice(0, 7) + "-01",
+    monthEnd(today)
+  );
+
+  const day = periodTotals(today, today);
+
+  $("todayLabel").textContent =
+    new Date(
+      today + "T12:00:00"
+    ).toLocaleDateString("pt-BR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+      year: "numeric"
+    });
+
+  $("todayRevenue").textContent =
+    money(day.revenue);
+
+  $("todayCount").textContent =
+    `${day.count} atendimento(s)`;
+
+  $("weekRevenue").textContent =
+    money(week.revenue);
+
+  $("weekCount").textContent =
+    `${week.count} atendimento(s)`;
+
+  $("monthRevenue").textContent =
+    money(month.revenue);
+
+  $("monthCount").textContent =
+    `${month.count} atendimento(s)`;
+
+  $("freeCount").textContent =
+    openingSlots(openingHours, today).length;
+
+  const list = todayAppointments();
+
+  $("nextAppointments").innerHTML = list.length
+    ? `
+      <div class="table-wrap">
+        <table>
+          <tr>
+            <th>Data</th>
+            <th>Hora</th>
+            <th>Cliente</th>
+            <th>Valor</th>
+            <th>Ações</th>
+          </tr>
+
+          ${list.map(appointment => `
+            <tr>
+              <td>${fmtDate(appointment.date)}</td>
+              <td>${esc(appointment.time)}</td>
+
+              <td>
+                <b>${esc(appointment.name)}</b><br>
+
+                <small>
+                  ${esc(appointment.procedure)}
+                  ${isReturn(appointment) ? " · 🔄 Retorno" : ""}
+                </small>
+              </td>
+
+              <td>${money(appointment.price)}</td>
+
+              <td>
+                <button
+                  type="button"
+                  class="btn secondary btn-sm"
+                  onclick="showAppointmentDetails(${idArgument(appointment.id)})"
+                >
+                  Ver detalhes
+                </button>
+              </td>
+            </tr>
+          `).join("")}
+        </table>
+      </div>
+    `
+    : `
+      <div class="empty">
+        Nenhum atendimento pendente para hoje.
+      </div>
+    `;
+
+  const average = month.count
+    ? month.revenue / month.count
+    : 0;
+
+  $("monthSummary").innerHTML = `
+    <p><b>${month.count}</b> atendimento(s) no mês</p>
+    <p>Ticket médio: <b>${money(average)}</b></p>
+    <p>Faturamento: <b>${money(month.revenue)}</b></p>
+  `;
+
+  const isAdmin = currentUser?.role === "admin";
+
+  $("monthCardWrap").style.display =
+    isAdmin ? "" : "none";
+
+  $("monthSummaryPanel").style.display =
+    isAdmin ? "" : "none";
+
+  $("dashCards").classList.toggle(
+    "cols-3",
+    !isAdmin
+  );
+}
+
+function showAppointmentDetails(id) {
+  const appointment = appointments.find(
+    item => String(item.id) === String(id)
+  );
+
+  if (!appointment) {
+    alert("Atendimento não encontrado.");
+    return;
   }
-  const [daily, week, month, year, period] = await Promise.all([
-    financialData(today, today),
-    financialData(weekStart, weekEnd),
-    financialData(
-      today.slice(0, 7) + '-01',
-      lastDayOfMonth(today)
-    ),
-    financialData(
-      today.slice(0, 4) + '-01-01',
-      today.slice(0, 4) + '-12-31'
-    ),
-    start ? financialData(start, end) : Promise.resolve(null)
-  ]);
-  res.set('Cache-Control', 'no-store');
-  res.json({
-    today: daily,
-    week,
-    month,
-    year,
-    period
+
+  alert(
+    `Cliente: ${appointment.name}\n` +
+    `Telefone: ${appointment.phone}\n` +
+    `Data: ${fmtDate(appointment.date)}\n` +
+    `Horário: ${appointment.time}\n` +
+    `Procedimento: ${appointment.procedure}\n` +
+    `Valor: ${money(appointment.price)}\n` +
+    `Status: ${appointment.status}\n` +
+    `Tipo: ${isReturn(appointment) ? "Retorno" : "Atendimento"}\n` +
+    `Observação: ${appointment.note || "-"}`
+  );
+}
+
+// =====================================================
+// NOTIFICAÇÕES E ATENDIMENTOS FUTUROS
+// =====================================================
+
+function mountDailyUI() {
+  if ($("notificationBell")) return;
+
+  const style = document.createElement("style");
+
+  style.textContent = `
+    .notification-bell {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      width:100%;
+      padding:12px;
+      border:1px solid #e2b4c2;
+      border-radius:12px;
+      color:#563344;
+      background:#fff7fa;
+      font:inherit;
+      cursor:pointer;
+      margin:12px 0;
+    }
+
+    .notification-count {
+      border-radius:20px;
+      background:#ba577b;
+      color:white;
+      padding:3px 9px;
+      font-weight:bold;
+    }
+
+    #futurePanel {margin-top:24px}
+    #futurePanel .table-wrap {max-height:500px;overflow:auto}
+    #futurePanel h2 {margin-top:0}
+    #futureCount {color:#8a6475}
+
+    .multi-slot {
+      font:inherit;
+      text-align:left;
+      cursor:pointer;
+      width:100%;
+      color:inherit;
+    }
+
+    .multi-slot span,
+    .multi-slot small {
+      display:block;
+      margin-top:5px;
+    }
+
+    #dailyDialog {
+      width:min(850px,calc(100vw - 32px));
+      max-height:85vh;
+      overflow:auto;
+      padding:22px;
+      box-sizing:border-box;
+      border:1px solid #f1d7dc;
+      border-radius:18px;
+      color:#302c38;
+      background:white;
+    }
+
+    #dailyDialog::backdrop {
+      background:rgba(35,20,30,.45);
+    }
+
+    #dailyDialog .table-wrap {overflow:auto}
+    #dailyDialog table {min-width:720px}
+
+    #dailyToast[hidden] {
+      display:none!important;
+    }
+
+    #dailyToast {
+      position:fixed;
+      z-index:9999;
+      right:18px;
+      bottom:18px;
+      width:min(370px,calc(100vw - 36px));
+      box-sizing:border-box;
+      padding:18px;
+      background:white;
+      color:#42313a;
+      border:1px solid #e8b8c8;
+      border-left:5px solid #c26a89;
+      border-radius:14px;
+      box-shadow:0 8px 30px #0002;
+    }
+
+    #dailyToast p {margin:0 0 12px}
+
+    #liveUpdateMessage {
+      color:#9b4b64;
+      font-size:13px;
+    }
+  `;
+
+  document.head.appendChild(style);
+
+  const bell = document.createElement("button");
+
+  bell.id = "notificationBell";
+  bell.type = "button";
+  bell.className = "notification-bell";
+
+  bell.innerHTML = `
+    <span>🔔 Atendimentos de hoje</span>
+
+    <span
+      id="notificationCount"
+      class="notification-count"
+    >
+      0
+    </span>
+  `;
+
+  document.querySelector(".nav")
+    .insertAdjacentElement("beforebegin", bell);
+
+  bell.onclick = openDailyNotifications;
+
+  const panel = document.createElement("div");
+
+  panel.id = "futurePanel";
+  panel.className = "panel";
+
+  panel.innerHTML = `
+    <h2>📅 Atendimentos futuros</h2>
+    <p id="futureCount"></p>
+
+    <div
+      id="futureAppointmentsTable"
+      class="table-wrap"
+    ></div>
+
+    <p id="liveUpdateMessage" role="status"></p>
+  `;
+
+  $("dashboard").appendChild(panel);
+
+  const heading = $("nextAppointments")
+    ?.closest(".panel")
+    ?.querySelector("h2");
+
+  if (heading) {
+    heading.textContent = "Atendimentos de hoje";
+  }
+
+  const freeCard =
+    $("freeCount")?.closest(".card");
+
+  if (freeCard?.querySelector(".label")) {
+    freeCard.querySelector(".label").textContent =
+      "Horários para agendar hoje";
+  }
+
+  if (freeCard?.querySelector(".small")) {
+    freeCard.querySelector(".small").textContent =
+      "Permite vários clientes por horário";
+  }
+
+  const dialog = document.createElement("dialog");
+
+  dialog.id = "dailyDialog";
+
+  dialog.setAttribute(
+    "aria-labelledby",
+    "dailyTitle"
+  );
+
+  dialog.innerHTML = `
+    <h2 id="dailyTitle">
+      🔔 Atendimentos de hoje
+    </h2>
+
+    <p id="dailySummary"></p>
+
+    <div id="dailyTable" class="table-wrap"></div>
+
+    <p>
+      Os avisos são atualizados enquanto o sistema estiver aberto.
+    </p>
+
+    <div class="return-actions">
+      <button
+        type="button"
+        id="dailyRefresh"
+        class="btn primary"
+      >
+        Atualizar
+      </button>
+
+      <button
+        type="button"
+        id="dailyClose"
+        class="btn secondary"
+      >
+        Fechar
+      </button>
+    </div>
+  `;
+
+  document.body.appendChild(dialog);
+
+  $("dailyClose").onclick = () => {
+    dialog.close();
+  };
+
+  $("dailyRefresh").onclick = async () => {
+    $("dailyRefresh").disabled = true;
+
+    try {
+      await refreshData();
+    } finally {
+      $("dailyRefresh").disabled = false;
+    }
+  };
+
+  const toast = document.createElement("div");
+
+  toast.id = "dailyToast";
+  toast.hidden = true;
+  toast.setAttribute("role", "status");
+  toast.setAttribute("aria-live", "polite");
+
+  toast.innerHTML = `
+    <p id="dailyToastText"></p>
+
+    <div class="return-actions">
+      <button
+        type="button"
+        id="toastView"
+        class="btn primary btn-sm"
+      >
+        Ver atendimentos
+      </button>
+
+      <button
+        type="button"
+        id="toastClose"
+        class="btn secondary btn-sm"
+      >
+        Fechar
+      </button>
+    </div>
+  `;
+
+  document.body.appendChild(toast);
+
+  $("toastView").onclick = openDailyNotifications;
+
+  $("toastClose").onclick = () => {
+    toast.hidden = true;
+    clearTimeout(toastTimer);
+  };
+}
+
+function renderDailyUI() {
+  if (
+    !$("notificationBell") ||
+    !currentUser ||
+    currentUser.role === "cliente"
+  ) {
+    return;
+  }
+
+  const today = localDate();
+  const list = todayAppointments();
+  const future = futureAppointments();
+
+  $("notificationCount").textContent =
+    list.length;
+
+  $("notificationBell").setAttribute(
+    "aria-label",
+    `${list.length} atendimento(s) pendente(s) hoje`
+  );
+
+  $("dailySummary").textContent =
+    `${fmtDate(today)} · ${list.length} atendimento(s) pendente(s)`;
+
+  $("dailyTable").innerHTML = list.length
+    ? renderPeriodTable(list)
+    : `
+      <div class="empty">
+        Nenhum atendimento pendente para hoje.
+      </div>
+    `;
+
+  $("futureCount").textContent =
+    `${future.length} agendamento(s) futuro(s), em ordem de data.`;
+
+  $("futureAppointmentsTable").innerHTML =
+    future.length
+      ? renderPeriodTable(future)
+      : `
+        <div class="empty">
+          Nenhum agendamento futuro pendente.
+        </div>
+      `;
+
+  const ids = new Set(
+    list.map(appointment =>
+      String(appointment.id)
+    )
+  );
+
+  const newDay = notificationDate !== today;
+
+  const added = [...ids].some(
+    id => !notifiedIds.has(id)
+  );
+
+  if (list.length && (newDay || added)) {
+    $("dailyToastText").textContent =
+      `🔔 Você tem ${list.length} atendimento(s) para hoje, ${fmtDate(today)}.`;
+
+    $("dailyToast").hidden = false;
+
+    clearTimeout(toastTimer);
+
+    toastTimer = setTimeout(() => {
+      $("dailyToast").hidden = true;
+    }, 15000);
+  }
+
+  if (!list.length) {
+    $("dailyToast").hidden = true;
+  }
+
+  notificationDate = today;
+  notifiedIds = ids;
+}
+
+function openDailyNotifications() {
+  if (!$("dailyDialog")) return;
+
+  $("dailyToast").hidden = true;
+  clearTimeout(toastTimer);
+
+  if (!$("dailyDialog").open) {
+    $("dailyDialog").showModal();
+  }
+
+  if (!refreshBusy) {
+    refreshData({ silent: true });
+  }
+}
+
+// =====================================================
+// FILTROS POR PERÍODO
+// =====================================================
+
+function periodListAndTotals(start, end) {
+  const list = appointments
+    .filter(appointment =>
+      validSales(appointment) &&
+      appointment.date >= start &&
+      appointment.date <= end
+    )
+    .sort((a, b) =>
+      (a.date + a.time)
+        .localeCompare(b.date + b.time)
+    );
+
+  const revenue = list.reduce(
+    (total, appointment) =>
+      total + Number(appointment.price),
+    0
+  );
+
+  return {
+    list,
+    revenue,
+    count: list.length,
+    ticket: list.length
+      ? revenue / list.length
+      : 0
+  };
+}
+
+function statusMarkup(appointment) {
+  const label = appointment.status +
+    (
+      isReturn(appointment) &&
+      appointment.status !== "Retorno"
+        ? " · Retorno"
+        : ""
+    );
+
+  return `
+    <span class="badge ${badge(appointment.status)}">
+      ${esc(label)}
+    </span>
+  `;
+}
+
+function renderPeriodTable(list) {
+  if (!list.length) {
+    return `
+      <div class="empty">
+        Nenhum atendimento encontrado.
+      </div>
+    `;
+  }
+
+  return `
+    <table>
+      <tr>
+        <th>Data</th>
+        <th>Hora</th>
+        <th>Cliente</th>
+        <th>Procedimento</th>
+        <th>Valor</th>
+        <th>Status</th>
+        <th>Ações</th>
+      </tr>
+
+      ${list.map(appointment => `
+        <tr>
+          <td>${fmtDate(appointment.date)}</td>
+          <td>${esc(appointment.time)}</td>
+          <td>${esc(appointment.name)}</td>
+          <td>${esc(appointment.procedure)}</td>
+          <td>${money(appointment.price)}</td>
+          <td>${statusMarkup(appointment)}</td>
+          <td>${appointmentActions(appointment)}</td>
+        </tr>
+      `).join("")}
+    </table>
+  `;
+}
+
+function applyDashboardFilter() {
+  const start = $("dashFilterStart").value;
+  const end = $("dashFilterEnd").value;
+
+  if (!start || !end) {
+    alert("Selecione a data inicial e a data final.");
+    return;
+  }
+
+  if (start > end) {
+    alert(
+      "A data inicial precisa ser anterior ou igual à data final."
+    );
+    return;
+  }
+
+  const result = periodListAndTotals(start, end);
+
+  $("dashFilterCards").style.display = "";
+
+  $("dashFilterRevenue").textContent =
+    money(result.revenue);
+
+  $("dashFilterCount").textContent =
+    result.count;
+
+  $("dashFilterTicket").textContent =
+    money(result.ticket);
+
+  $("dashFilterTable").innerHTML =
+    renderPeriodTable(result.list);
+}
+
+function clearDashboardFilter() {
+  $("dashFilterStart").value = "";
+  $("dashFilterEnd").value = "";
+  $("dashFilterCards").style.display = "none";
+  $("dashFilterTable").innerHTML = "";
+}
+
+function applyAgendaFilter() {
+  const start = $("agendaFilterStart").value;
+  const end = $("agendaFilterEnd").value;
+
+  if (!start || !end) {
+    alert("Selecione a data inicial e a data final.");
+    return;
+  }
+
+  if (start > end) {
+    alert(
+      "A data inicial precisa ser anterior ou igual à data final."
+    );
+    return;
+  }
+
+  const result = periodListAndTotals(start, end);
+
+  $("agendaFilterCards").style.display = "";
+
+  $("agendaFilterRevenue").textContent =
+    money(result.revenue);
+
+  $("agendaFilterCount").textContent =
+    result.count;
+
+  $("agendaFilterTicket").textContent =
+    money(result.ticket);
+
+  $("agendaFilterTable").innerHTML =
+    renderPeriodTable(result.list);
+}
+
+function clearAgendaFilter() {
+  $("agendaFilterStart").value = "";
+  $("agendaFilterEnd").value = "";
+  $("agendaFilterCards").style.display = "none";
+  $("agendaFilterTable").innerHTML = "";
+}
+
+function refreshVisibleFilters() {
+  for (const [prefix, apply] of [
+    ["dash", applyDashboardFilter],
+    ["agenda", applyAgendaFilter]
+  ]) {
+    const start = $(prefix + "FilterStart")?.value;
+    const end = $(prefix + "FilterEnd")?.value;
+
+    if (start && end && start <= end) {
+      apply();
+    }
+  }
+}
+
+// =====================================================
+// AGENDA
+// =====================================================
+
+function setStatus(id, newStatus) {
+  if (newStatus === "Retorno") {
+    openReturnModal(id);
+    return;
+  }
+
+  if (
+    newStatus === "Cancelado" &&
+    !confirm("Cancelar este agendamento?")
+  ) {
+    return;
+  }
+
+  api(
+    `/api/appointments/${encodeURIComponent(id)}/status`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        status: newStatus
+      })
+    }
+  )
+    .then(() => refreshData())
+    .catch(error => alert(error.message));
+}
+
+function appointmentActions(appointment) {
+  const id = idArgument(appointment.id);
+  const phone = String(appointment.phone || "").replace(/\D/g, "");
+  const whatsappNumber = phone.startsWith("55")
+    ? phone
+    : phone.length === 11
+      ? "55" + phone
+      : phone;
+  const message = encodeURIComponent(
+    `Olá! Passando para lembrar que temos um agendamento hoje às ${appointment.time}. Até logo!`
+  );
+  const whatsappLink = phone
+    ? `https://wa.me/${whatsappNumber}?text=${message}`
+    : "";
+
+  return `
+    <div class="return-actions">
+      <button
+        type="button"
+        class="btn success btn-sm"
+        onclick="setStatus(${id}, 'Confirmado')"
+        ${appointment.status === "Confirmado" ? "disabled" : ""}
+      >
+        Confirmado
+      </button>
+
+      <button
+        type="button"
+        class="btn danger btn-sm"
+        onclick="setStatus(${id}, 'Cancelado')"
+        ${appointment.status === "Cancelado" ? "disabled" : ""}
+      >
+        Cancelado
+      </button>
+
+      <button
+        type="button"
+        class="btn primary btn-sm"
+        onclick="openReturnModal(${id})"
+        ${appointment.status === "Cancelado" ? "disabled" : ""}
+      >
+        🔄 Retorno
+      </button>
+
+      ${
+        whatsappLink
+          ? `
+            <a
+              class="btn secondary btn-sm"
+              href="${esc(whatsappLink)}"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              💬 WhatsApp
+            </a>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderAgenda() {
+  const selectedDate =
+    $("agendaDate")?.value || localDate();
+
+  const list = appointments
+    .filter(appointment =>
+      appointment.date === selectedDate
+    )
+    .sort((a, b) =>
+      a.time.localeCompare(b.time)
+    );
+
+  const dayHours = openingSlots(
+    openingHours,
+    selectedDate
+  );
+
+  $("slots").innerHTML = dayHours.map(hour => {
+    const group = list.filter(appointment =>
+      appointment.time === hour &&
+      appointment.status !== "Cancelado"
+    );
+
+    return `
+      <button
+        type="button"
+        class="slot free multi-slot"
+        onclick="openModal('${selectedDate}', '${hour}')"
+      >
+        <strong>${esc(hour)}</strong>
+
+        <span>
+          ${
+            group.length
+              ? group.length + " agendamento(s)"
+              : "Disponível"
+          }
+        </span>
+
+        ${group.map(appointment => `
+          <small>
+            ${esc(appointment.name)}
+            ${isReturn(appointment) ? " · Retorno" : ""}
+          </small>
+        `).join("")}
+
+        <small>+ Agendar neste horário</small>
+      </button>
+    `;
+  }).join("") || `
+    <div class="empty">
+      Nenhum horário de atendimento disponível nesta data.
+    </div>
+  `;
+
+  $("dayTable").innerHTML = list.length
+    ? `
+      <table>
+        <tr>
+          <th>Hora</th>
+          <th>Cliente</th>
+          <th>Foto</th>
+          <th>Procedimento</th>
+          <th>Valor</th>
+          <th>Status</th>
+          <th>Obs.</th>
+          <th>Ações</th>
+        </tr>
+
+        ${list.map(appointment => {
+          const client = clients.find(
+            item => item.phone === appointment.phone
+          );
+
+          return `
+            <tr>
+              <td>
+                <b>${esc(appointment.time)}</b>
+              </td>
+
+              <td>
+                ${esc(appointment.name)}<br>
+                <small>${esc(appointment.phone)}</small>
+              </td>
+
+              <td>
+                ${
+                  client?.photo
+                    ? `
+                      <img
+                        src="${esc(client.photo)}"
+                        class="client-photo clickable-photo"
+                        alt="Foto do cliente"
+                        onclick="openPhotoViewer('${esc(client.photo)}')"
+                        title="Clique para ampliar"
+                        style="cursor:pointer"
+                      >
+                    `
+                    : "<small>Sem foto</small>"
+                }
+              </td>
+
+              <td>${esc(appointment.procedure)}</td>
+              <td>${money(appointment.price)}</td>
+              <td>${statusMarkup(appointment)}</td>
+              <td>${esc(appointment.note || "-")}</td>
+              <td>${appointmentActions(appointment)}</td>
+            </tr>
+          `;
+        }).join("")}
+      </table>
+    `
+    : `
+      <div class="empty">
+        Nenhum agendamento para esta data.
+      </div>
+    `;
+}
+
+function badge(status) {
+  return {
+    Agendado: "b-agendado",
+    Confirmado: "b-confirmado",
+    Atendido: "b-atendido",
+    Cancelado: "b-cancelado",
+    Retorno: "b-retorno"
+  }[status] || "b-agendado";
+}
+
+function changeDay(numberOfDays) {
+  const date = new Date(
+    (
+      $("agendaDate").value || localDate()
+    ) + "T12:00:00"
+  );
+
+  date.setDate(
+    date.getDate() + numberOfDays
+  );
+
+  $("agendaDate").value =
+    date.toISOString().slice(0, 10);
+
+  renderAgenda();
+}
+
+function goToday() {
+  if ($("agendaDate")) {
+    $("agendaDate").value = localDate();
+  }
+
+  renderAgenda();
+}
+
+// =====================================================
+// CLIENTES
+// =====================================================
+
+function openClientModal() {
+  $("clientModal").classList.add("show");
+}
+
+function closeClientModal() {
+  $("clientModal").classList.remove("show");
+  $("clientForm").reset();
+  $("photoPreview").style.display = "none";
+  $("photoPreview").src = "";
+}
+
+function openPhotoViewer(url) {
+  if (!url) return;
+  const viewer = $("photoViewer");
+  const img = $("photoViewerImg");
+  if (!viewer || !img) return;
+  img.src = url;
+  viewer.classList.add("show");
+  viewer.style.display = "flex";
+  document.body.style.overflow = "hidden";
+}
+
+function closePhotoViewer() {
+  const viewer = $("photoViewer");
+  const img = $("photoViewerImg");
+  if (viewer) {
+    viewer.classList.remove("show");
+    viewer.style.display = "none";
+  }
+  if (img) img.src = "";
+  document.body.style.overflow = "";
+}
+
+// Listener global para fechar ao clicar fora (mobile friendly)
+document.addEventListener("click", function(e) {
+  const viewer = $("photoViewer");
+  if (viewer && viewer.classList.contains("show")) {
+    // Se clicou no fundo (viewer) e não na imagem ou botão
+    if (e.target === viewer) {
+      closePhotoViewer();
+    }
+  }
+});
+
+// Suporte a touch para fechar
+document.addEventListener("touchend", function(e) {
+  const viewer = $("photoViewer");
+  if (viewer && viewer.classList.contains("show")) {
+    if (e.target === viewer) {
+      e.preventDefault();
+      closePhotoViewer();
+    }
+  }
+}, { passive: false });
+
+$("clientPhoto").addEventListener(
+  "change",
+  () => {
+    const file = $("clientPhoto").files[0];
+
+    if (!file) return;
+
+    const reader = new FileReader();
+
+    reader.onload = event => {
+      $("photoPreview").src = event.target.result;
+      $("photoPreview").style.display = "block";
+    };
+
+    reader.readAsDataURL(file);
+  }
+);
+
+if ($("clientPhone")) {
+  $("clientPhone").addEventListener(
+    "input",
+    () => {
+      $("clientPhone").value =
+        $("clientPhone").value.replace(/\D/g, "");
+    }
+  );
+}
+
+$("clientForm").addEventListener(
+  "submit",
+  async event => {
+    event.preventDefault();
+
+    try {
+      const form = new FormData();
+
+      form.append(
+        "name",
+        $("clientName").value.trim()
+      );
+
+      form.append(
+        "phone",
+        $("clientPhone").value.trim()
+      );
+
+      form.append(
+        "note",
+        $("clientNote").value.trim()
+      );
+
+      if ($("clientPhoto").files[0]) {
+        form.append(
+          "photo",
+          $("clientPhoto").files[0]
+        );
+      }
+
+      await api("/api/clients", {
+        method: "POST",
+        body: form
+      });
+
+      closeClientModal();
+      await refreshData();
+
+      alert("Cliente salvo com sucesso!");
+    } catch (error) {
+      alert(error.message);
+    }
+  }
+);
+
+async function downloadClientPhoto(id) {
+  const client = clients.find(
+    item => String(item.id) === String(id)
+  );
+
+  if (!client?.photo) {
+    alert("Este cliente não tem foto cadastrada.");
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      client.photo,
+      {
+        credentials: "same-origin",
+        cache: "no-store"
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        "Não foi possível obter a foto (HTTP " +
+        response.status +
+        ")."
+      );
+    }
+
+    const blob = await response.blob();
+
+    const mime = blob.type
+      .split(";")[0]
+      .toLowerCase();
+
+    if (
+      !mime.startsWith("image/") ||
+      !blob.size
+    ) {
+      throw new Error(
+        "O servidor não devolveu uma imagem válida."
+      );
+    }
+
+    const extensions = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+      "image/gif": "gif",
+      "image/avif": "avif",
+      "image/heic": "heic",
+      "image/heif": "heif",
+      "image/bmp": "bmp",
+      "image/svg+xml": "svg",
+      "image/tiff": "tiff"
+    };
+
+    const extension = extensions[mime] || "img";
+
+    const name = String(client.name || "cliente")
+      .trim()
+      .replace(
+        /[^a-zA-Z0-9À-ÿ_-]+/g,
+        "_"
+      ) || "cliente";
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = `${name}.${extension}`;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 60000);
+  } catch (error) {
+    alert(
+      error.message ||
+      "Não foi possível baixar a foto."
+    );
+  }
+}
+
+function renderClients() {
+  const search = (
+    $("clientSearch").value || ""
+  ).toLowerCase();
+
+  const filteredClients = clients.filter(
+    client =>
+      (client.name + client.phone)
+        .toLowerCase()
+        .includes(search)
+  );
+
+  $("clientTable").innerHTML =
+    filteredClients.length
+      ? `
+        <table>
+          <tr>
+            <th>Cliente</th>
+            <th>Contato</th>
+            <th>Atendimentos</th>
+            <th>Total</th>
+            <th>Último atendimento</th>
+            <th>Observação</th>
+            <th>Ações</th>
+          </tr>
+
+          ${filteredClients.map(client => `
+            <tr>
+              <td>
+                ${
+                  client.photo
+                    ? `
+                      <img
+                        class="client-photo clickable-photo"
+                        src="${esc(client.photo)}"
+                        alt="Foto do cliente"
+                        onclick="openPhotoViewer('${esc(client.photo)}')"
+                        title="Clique para ampliar"
+                        style="cursor:pointer"
+                      >
+                    `
+                    : ""
+                }
+
+                <b>${esc(client.name)}</b>
+              </td>
+
+              <td>${esc(client.phone)}</td>
+              <td>${client.count}</td>
+              <td>${money(client.total)}</td>
+              <td>${client.last ? fmtDate(client.last) : "—"}</td>
+              <td>${esc(client.note || "-")}</td>
+
+              <td>
+                <div class="return-actions">
+                  <button
+                    type="button"
+                    class="btn primary btn-sm"
+                    onclick="openClientAppointment(${idArgument(client.id)})"
+                  >
+                    + Novo agendamento
+                  </button>
+
+                  <button
+                    type="button"
+                    class="btn secondary btn-sm"
+                    onclick="openClientReturn(${idArgument(client.id)})"
+                  >
+                    🔄 Retorno
+                  </button>
+
+                  ${
+                    client.photo
+                      ? `
+                        <button
+                          type="button"
+                          class="btn secondary btn-sm"
+                          onclick="downloadClientPhoto(${idArgument(client.id)})"
+                        >
+                          ⬇️ Baixar foto
+                        </button>
+                      `
+                      : ""
+                  }
+
+                  ${
+                    currentUser?.role === "admin"
+                      ? `
+                        <button
+                          type="button"
+                          class="btn danger btn-sm"
+                          onclick="removeClient(${idArgument(client.id)})"
+                        >
+                          Remover
+                        </button>
+                      `
+                      : ""
+                  }
+                </div>
+              </td>
+            </tr>
+          `).join("")}
+        </table>
+      `
+      : `
+        <div class="empty">
+          Nenhum cliente encontrado.
+        </div>
+      `;
+}
+
+async function removeClient(id) {
+  if (
+    !confirm(
+      "Excluir definitivamente este cliente e todos os seus " +
+      "agendamentos, retornos e atendimentos? Os valores também " +
+      "serão removidos dos relatórios."
+    )
+  ) {
+    return;
+  }
+
+  try {
+    await api(
+      `/api/clients/${encodeURIComponent(id)}`,
+      {
+        method: "DELETE"
+      }
+    );
+
+    await refreshData();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+// =====================================================
+// ATENDIMENTOS E RETORNOS
+// =====================================================
+
+function isReturn(appointment) {
+  return Boolean(
+    appointment.isReturn ||
+    appointment.originalAppointmentId ||
+    appointment.status === "Retorno"
+  );
+}
+
+function mountReturnUI() {
+  if ($("returnDialog")) return;
+
+  const style = document.createElement("style");
+
+  style.textContent = `
+    .b-retorno {
+      background:#eee3ff;
+      color:#66359a;
+    }
+
+    .return-actions {
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      margin:8px 0;
+    }
+
+    .return-actions button {
+      white-space:nowrap;
+    }
+
+    #openingHoursPanel[hidden],
+    #editAvailableHours[hidden] {
+      display:none!important;
+    }
+
+    #openingHoursDays {
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+      gap:10px;
+    }
+
+    .attendance-row {
+      display:flex;
+      gap:10px;
+      align-items:end;
+      padding:10px;
+      border:1px solid #f1d7dc;
+      border-radius:10px;
+    }
+
+    .attendance-row label {
+      flex:1;
+      min-width:0;
+    }
+
+    .attendance-row input {
+      width:100%;
+      box-sizing:border-box;
+    }
+
+    #returnDialog {
+      width:min(600px,calc(100vw - 32px));
+      max-height:90vh;
+      overflow:auto;
+      box-sizing:border-box;
+      padding:24px;
+      border:1px solid #f1d7dc;
+      border-radius:18px;
+      color:#302c38;
+      background:white;
+    }
+
+    #returnDialog::backdrop {
+      background:rgba(35,20,30,.45);
+    }
+
+    #returnDialog h2 {margin:0 0 8px}
+    #returnClientLabel {color:#7a6570}
+
+    #returnFields {
+      border:0;
+      padding:0;
+      margin:0;
+      min-width:0;
+    }
+
+    .return-grid {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:14px;
+    }
+
+    .return-grid label {
+      display:grid;
+      gap:6px;
+      font-size:14px;
+    }
+
+    .return-full {grid-column:1/-1}
+
+    .return-grid input,
+    .return-grid select,
+    .return-grid textarea {
+      width:100%;
+      box-sizing:border-box;
+      padding:12px;
+      border:1px solid #e8cbd3;
+      border-radius:9px;
+      font:inherit;
+      background:white;
+      color:inherit;
+    }
+
+    #returnMessage {
+      min-height:22px;
+      color:#a12442;
+      margin:12px 0;
+    }
+
+    #returnDialog button:disabled {
+      opacity:.55;
+      cursor:wait;
+    }
+
+    #atendimentos table {min-width:780px}
+
+    #atendimentos .filters {
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+      margin-bottom:16px;
+    }
+
+    #atendimentos .filters input,
+    #atendimentos .filters select {
+      padding:12px;
+      border:1px solid #efd1d9;
+      border-radius:9px;
+    }
+
+    @media(max-width:600px) {
+      .return-grid {grid-template-columns:1fr}
+      #returnDialog {padding:18px}
+      .return-actions .btn {padding:9px}
+    }
+  `;
+
+  document.head.appendChild(style);
+
+  const section = document.createElement("section");
+
+  section.id = "atendimentos";
+  section.className = "section";
+
+  section.innerHTML = `
+    <div class="top">
+      <div>
+        <h1>Atendimentos e retornos</h1>
+
+        <p>
+          Confirme, cancele ou escolha a data do próximo atendimento.
+        </p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="filters">
+        <input
+          id="attendanceSearch"
+          type="search"
+          placeholder="Buscar cliente ou procedimento"
+          aria-label="Buscar atendimento"
+        >
+
+        <select
+          id="attendanceFilter"
+          aria-label="Filtrar atendimentos"
+        >
+          <option value="">Todos</option>
+          <option value="Retorno">Retornos</option>
+          <option value="Confirmado">Confirmados</option>
+          <option value="Cancelado">Cancelados</option>
+        </select>
+      </div>
+
+      <div
+        id="attendanceTable"
+        class="table-wrap"
+      ></div>
+    </div>
+  `;
+
+  $("agenda").insertAdjacentElement(
+    "afterend",
+    section
+  );
+
+  $("attendanceSearch").addEventListener(
+    "input",
+    renderAttendances
+  );
+
+  $("attendanceFilter").addEventListener(
+    "change",
+    renderAttendances
+  );
+
+  const dialog = document.createElement("dialog");
+
+  dialog.id = "returnDialog";
+
+  dialog.setAttribute(
+    "aria-labelledby",
+    "returnTitle"
+  );
+
+  dialog.innerHTML = `
+    <h2 id="returnTitle">🔄 Agendar retorno</h2>
+    <p id="returnClientLabel"></p>
+
+    <form id="returnForm">
+      <fieldset id="returnFields">
+        <div class="return-grid">
+          <label class="return-full">
+            Atendimento original
+            <select id="returnOriginal" required></select>
+          </label>
+
+          <label class="return-full">
+            Procedimento
+            <select id="returnProcedure" required></select>
+          </label>
+
+          <label>
+            Data do retorno
+            <input id="returnDate" type="date" required>
+          </label>
+
+          <label>
+            Horário
+            <select id="returnTime" required>
+              <option value="">Escolha a data</option>
+            </select>
+          </label>
+
+          <label>
+            Valor (R$)
+            <input
+              id="returnPrice"
+              type="number"
+              min="0"
+              max="99999999.99"
+              step="0.01"
+              required
+            >
+          </label>
+
+          <label class="return-full">
+            Observação
+            <textarea
+              id="returnNote"
+              rows="3"
+              placeholder="Orientações para o retorno"
+            ></textarea>
+          </label>
+        </div>
+      </fieldset>
+
+      <div
+        id="returnMessage"
+        role="status"
+        aria-live="polite"
+      ></div>
+
+      <div class="return-actions">
+        <button
+          id="returnClose"
+          type="button"
+          class="btn secondary"
+        >
+          Fechar
+        </button>
+
+        <button
+          id="returnSave"
+          type="submit"
+          class="btn primary"
+        >
+          Agendar retorno
+        </button>
+      </div>
+    </form>
+  `;
+
+  document.body.appendChild(dialog);
+
+  $("returnClose").onclick = closeReturnModal;
+
+  dialog.addEventListener(
+    "cancel",
+    event => {
+      if (returnSaving) {
+        event.preventDefault();
+      }
+    }
+  );
+
+  dialog.addEventListener("close", () => {
+    returnSlotsRequestId++;
+    returnSlotsReady = false;
   });
-}));
+
+  $("returnOriginal").addEventListener(
+    "change",
+    selectReturnSource
+  );
+
+  $("returnDate").addEventListener(
+    "change",
+    loadReturnSlots
+  );
+
+  $("returnProcedure").addEventListener(
+    "change",
+    () => {
+      const procedure = procedures.find(
+        item =>
+          String(item.id) ===
+          $("returnProcedure").value
+      );
+
+      $("returnPrice").value =
+        procedure ? procedure.price : "";
+    }
+  );
+
+  $("returnForm").addEventListener(
+    "submit",
+    saveReturn
+  );
+}
+
+function renderAttendances() {
+  if (!$("attendanceTable")) return;
+
+  const search = $("attendanceSearch")
+    .value
+    .trim()
+    .toLowerCase();
+
+  const status = $("attendanceFilter").value;
+
+  const list = appointments
+    .filter(appointment => {
+      const matchesSearch =
+        `${appointment.name} ${appointment.phone} ${appointment.procedure}`
+          .toLowerCase()
+          .includes(search);
+
+      const matchesStatus =
+        !status ||
+        (
+          status === "Retorno"
+            ? isReturn(appointment)
+            : appointment.status === status
+        );
+
+      return matchesSearch && matchesStatus;
+    })
+    .sort((a, b) =>
+      (b.date + b.time)
+        .localeCompare(a.date + a.time)
+    );
+
+  $("attendanceTable").innerHTML =
+    renderPeriodTable(list);
+}
+
+function openReturnModal(id) {
+  mountReturnUI();
+
+  const source = appointments.find(
+    appointment =>
+      String(appointment.id) === String(id)
+  );
+
+  if (
+    !source ||
+    source.status === "Cancelado"
+  ) {
+    alert(
+      "Escolha um atendimento que não esteja cancelado."
+    );
+    return;
+  }
+
+  showReturnSources([source]);
+}
+
+function openClientReturn(id) {
+  mountReturnUI();
+
+  const client = clients.find(
+    item => String(item.id) === String(id)
+  );
+
+  if (!client) return;
+
+  const sources = appointments
+    .filter(appointment =>
+      appointment.status !== "Cancelado" &&
+      (
+        appointment.clientId
+          ? String(appointment.clientId) ===
+            String(client.id)
+          : appointment.phone === client.phone
+      )
+    )
+    .sort((a, b) =>
+      (b.date + b.time)
+        .localeCompare(a.date + a.time)
+    );
+
+  if (!sources.length) {
+    alert(
+      "Este cliente ainda não possui um atendimento para vincular o retorno. " +
+      "Use o botão Novo agendamento para marcar o primeiro atendimento."
+    );
+    return;
+  }
+
+  showReturnSources(sources);
+}
+
+function showReturnSources(sources) {
+  if (returnSaving) return;
+
+  if ($("dailyDialog")?.open) {
+    $("dailyDialog").close();
+  }
+
+  $("returnForm").reset();
+  $("returnFields").disabled = false;
+
+  $("returnOriginal").innerHTML =
+    sources.map(appointment => `
+      <option value="${esc(appointment.id)}">
+        ${fmtDate(appointment.date)} às ${esc(appointment.time)}
+        — ${esc(appointment.procedure)}
+      </option>
+    `).join("");
+
+  fillProcedureSelect(
+    $("returnProcedure"),
+    true
+  );
+
+  if (!$("returnDialog").open) {
+    $("returnDialog").showModal();
+  }
+
+  selectReturnSource();
+}
+
+function selectReturnSource() {
+  const source = appointments.find(
+    appointment =>
+      String(appointment.id) ===
+      $("returnOriginal").value
+  );
+
+  if (!source) return;
+
+  $("returnClientLabel").textContent =
+    `${source.name} · ${source.phone}`;
+
+  $("returnProcedure").value =
+    String(source.procedureId);
+
+  const procedure = procedures.find(
+    item =>
+      String(item.id) ===
+      $("returnProcedure").value
+  );
+
+  $("returnPrice").value =
+    procedure ? procedure.price : "";
+
+  const minimum = source.date > localDate()
+    ? source.date
+    : localDate();
+
+  $("returnDate").min = minimum;
+  $("returnDate").value = minimum;
+  $("returnNote").value = "";
+
+  loadReturnSlots();
+}
+
+async function loadReturnSlots() {
+  const requestId = ++returnSlotsRequestId;
+
+  returnSlotsReady = false;
+
+  $("returnSave").disabled = true;
+
+  $("returnTime").innerHTML =
+    '<option value="">Carregando horários...</option>';
+
+  $("returnMessage").textContent = "";
+
+  const date = $("returnDate").value;
+
+  const source = appointments.find(
+    appointment =>
+      String(appointment.id) ===
+      $("returnOriginal").value
+  );
+
+  if (
+    !source ||
+    !date ||
+    date < $("returnDate").min
+  ) {
+    $("returnTime").innerHTML =
+      '<option value="">Escolha uma data válida</option>';
+    return;
+  }
+
+  try {
+    const data = await api(
+      "/api/public/slots?date=" +
+      encodeURIComponent(date)
+    );
+
+    if (
+      requestId !== returnSlotsRequestId ||
+      !$("returnDialog").open
+    ) {
+      return;
+    }
+
+    const slots = (data.slots || []).filter(
+      time =>
+        date !== source.date ||
+        time > source.time
+    );
+
+    $("returnTime").innerHTML =
+      '<option value="">Selecione</option>' +
+      slots.map(time => `
+        <option value="${esc(time)}">
+          ${esc(time)}
+        </option>
+      `).join("");
+
+    returnSlotsReady = slots.length > 0;
+
+    $("returnSave").disabled =
+      !returnSlotsReady || returnSaving;
+
+    if (!slots.length) {
+      $("returnMessage").textContent =
+        "Nenhum horário disponível nesta data. Escolha outro dia.";
+    }
+  } catch (error) {
+    if (requestId !== returnSlotsRequestId) {
+      return;
+    }
+
+    $("returnTime").innerHTML =
+      '<option value="">Horários indisponíveis</option>';
+
+    $("returnMessage").textContent =
+      error.message + " Selecione a data novamente.";
+  }
+}
+
+async function saveReturn(event) {
+  event.preventDefault();
+
+  if (
+    returnSaving ||
+    !returnSlotsReady ||
+    !$("returnForm").reportValidity()
+  ) {
+    return;
+  }
+
+  const id = $("returnOriginal").value;
+
+  const payload = {
+    date: $("returnDate").value,
+    time: $("returnTime").value,
+    procedureId: $("returnProcedure").value,
+    price: $("returnPrice").value,
+    note: $("returnNote").value.trim()
+  };
+
+  returnSaving = true;
+
+  $("returnFields").disabled = true;
+  $("returnSave").disabled = true;
+  $("returnClose").disabled = true;
+  $("returnSave").textContent = "Salvando...";
+  $("returnMessage").textContent = "";
+
+  try {
+    await api(
+      "/api/appointments/" +
+      encodeURIComponent(id) +
+      "/return",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      }
+    );
+
+    $("returnDialog").close();
+
+    await refreshData();
+
+    showSection("atendimentos");
+
+    alert(
+      `Retorno agendado para ${fmtDate(payload.date)} às ${payload.time}.`
+    );
+  } catch (error) {
+    $("returnMessage").textContent =
+      error.message;
+  } finally {
+    returnSaving = false;
+
+    $("returnFields").disabled = false;
+    $("returnSave").disabled = !returnSlotsReady;
+    $("returnClose").disabled = false;
+    $("returnSave").textContent = "Agendar retorno";
+  }
+}
+
+function closeReturnModal() {
+  if (!returnSaving) {
+    $("returnDialog").close();
+  }
+}
+
+// =====================================================
+// PROCEDIMENTOS
+// =====================================================
+
+function readProcedurePrice(value) {
+  const text = String(value ?? "")
+    .trim()
+    .replace(",", ".");
+
+  if (!/^\d{1,8}(\.\d{1,2})?$/.test(text)) {
+    return null;
+  }
+
+  const price = Number(text);
+
+  return Number.isFinite(price) &&
+    price <= 99999999.99
+      ? price
+      : null;
+}
+
+async function addProcedure() {
+  const name = $("procName").value.trim();
+
+  const price = readProcedurePrice(
+    $("procPrice").value
+  );
+
+  if (!name || name.length > 150) {
+    alert("Informe um nome de até 150 caracteres.");
+    return;
+  }
+
+  if (price === null) {
+    alert("Informe um valor válido, como 40 ou 40,50.");
+    return;
+  }
+
+  try {
+    await api("/api/procedures", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ name, price })
+    });
+
+    $("procName").value = "";
+    $("procPrice").value = "";
+
+    await refreshData();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function editProcedurePrice(id) {
+  const procedure = procedures.find(
+    item => String(item.id) === String(id)
+  );
+
+  if (!procedure) return;
+
+  const value = prompt(
+    'Novo valor de "' + procedure.name + '" (R$):',
+    Number(procedure.price)
+      .toFixed(2)
+      .replace(".", ",")
+  );
+
+  if (value === null) return;
+
+  const price = readProcedurePrice(value);
+
+  if (price === null) {
+    alert("Informe um valor válido, como 40 ou 40,50.");
+    return;
+  }
+
+  try {
+    await api(
+      "/api/procedures/" +
+      encodeURIComponent(id) +
+      "/price",
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ price })
+      }
+    );
+
+    await refreshData();
+
+    alert(
+      "Valor atualizado! O novo preço será usado nos próximos agendamentos."
+    );
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function removeProcedure(id) {
+  if (
+    !confirm(
+      "Remover este procedimento? Os agendamentos já feitos serão mantidos."
+    )
+  ) {
+    return;
+  }
+
+  try {
+    await api(
+      "/api/procedures/" +
+      encodeURIComponent(id),
+      {
+        method: "DELETE"
+      }
+    );
+
+    await refreshData();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+function renderProcedures() {
+  $("procedureTable").innerHTML =
+    procedures.length
+      ? `
+        <table>
+          <tr>
+            <th>Procedimento</th>
+            <th>Valor padrão</th>
+            <th>Ações</th>
+          </tr>
+
+          ${procedures.map(procedure => `
+            <tr>
+              <td>${esc(procedure.name)}</td>
+              <td>${money(procedure.price)}</td>
+
+              <td>
+                <button
+                  type="button"
+                  class="btn secondary btn-sm"
+                  onclick="editProcedurePrice(${idArgument(procedure.id)})"
+                >
+                  Alterar valor
+                </button>
+
+                <button
+                  type="button"
+                  class="btn danger btn-sm"
+                  onclick="removeProcedure(${idArgument(procedure.id)})"
+                >
+                  Remover
+                </button>
+              </td>
+            </tr>
+          `).join("")}
+        </table>
+      `
+      : `
+        <div class="empty">
+          Nenhum procedimento cadastrado.
+        </div>
+      `;
+}
+
 // =====================================================
 // RELATÓRIOS
 // =====================================================
-async function reportData(type, date, month, year) {
-  const today = salonToday();
-  let start;
-  let end;
-  let label;
-  if (type === 'month') {
-    const selected = String(month || today.slice(0, 7));
-    if (!/^\d{4}-\d{2}$/.test(selected)) fail('Mês inválido.');
-    start = validDate(selected + '-01');
-    end = lastDayOfMonth(start);
-    label = 'Mensal - ' + selected;
-  } else if (type === 'year') {
-    const selected = String(year || today.slice(0, 4));
-    if (!/^\d{4}$/.test(selected)) fail('Ano inválido.');
-    start = validDate(selected + '-01-01');
-    end = validDate(selected + '-12-31');
-    label = 'Anual - ' + selected;
-  } else if (type === 'day') {
-    start = validDate(date || today);
-    end = start;
-    label = 'Diário - ' + start;
-  } else {
-    fail('Tipo de relatório inválido.');
-  }
-  const [result, financial, sales] = await Promise.all([
-    pool.query(`
-      SELECT
-        a.id, a.data, a.hora, a.valor, a.status, a.observacao,
-        c.nome AS cliente, c.telefone,
-        p.nome AS procedimento,
-        c.observacao AS cliente_observacao
-      FROM agendamentos a
-      JOIN clientes c ON c.id = a.cliente_id
-      JOIN procedimentos p ON p.id = a.procedimento_id
-      WHERE a.data BETWEEN $1::date AND $2::date
-      ORDER BY a.data, a.hora
-    `, [start, end]),
-    financialData(start, end),
-    readSales(pool, start, end)
-  ]);
-  const data = result.rows.map(row => ({
-    ...row,
-    valor: Number(row.valor)
-  }));
-  const valid = data.filter(row => row.status !== 'Cancelado');
-  return {
-    ...financial,
-    data,
-    sales,
-    count: data.length,
-    attended: data.filter(row => row.status === 'Atendido').length,
-    canceled: data.filter(row => row.status === 'Cancelado').length,
-    pending: data.filter(
-      row => !['Atendido', 'Cancelado'].includes(row.status)
-    ).length,
-    ticket: valid.length
-      ? financial.serviceRevenue / valid.length
-      : 0,
-    salesTicket: financial.salesCount
-      ? financial.productRevenue / financial.salesCount
-      : 0,
-    label,
-    start,
-    end
-  };
-}
-app.get('/api/reports/summary', auth, requireAdmin, asyncHandler(async (_req, res) => {
-  const today = salonToday();
-  const [day, month, year] = await Promise.all([
-    reportData('day', today),
-    reportData('month', null, today.slice(0, 7)),
-    reportData('year', null, null, today.slice(0, 4))
-  ]);
-  res.json({ today: day, month, year });
-}));
-app.get('/api/reports', auth, requireAdmin, asyncHandler(async (req, res) => {
-  res.json(await reportData(
-    req.query.type || 'month',
-    req.query.date,
-    req.query.month,
-    req.query.year
-  ));
-}));
-// =====================================================
-// RELATÓRIOS PDF
-// =====================================================
-app.get('/api/reports/pdf', auth, requireAdmin, asyncHandler(async (req, res) => {
-  const report = await reportData(
-    req.query.type || 'day',
-    req.query.date,
-    req.query.month,
-    req.query.year
-  );
-  const safeName = report.label.replace(/[^a-z0-9_-]+/gi, '_');
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename="Relatorio_${safeName}.pdf"`
-  );
-  const doc = new PDFDocument({ size: 'A4', margin: 0 });
-  doc.on('error', error => {
-    console.error('Erro no PDF:', error);
-    res.destroy();
+
+function updateReportPeriod(start, end) {
+  const result = periodListAndTotals(start, end);
+
+  $("filteredRevenue").textContent =
+    money(result.revenue);
+
+  $("filteredCount").textContent =
+    result.count;
+
+  $("filteredTicket").textContent =
+    money(result.ticket);
+
+  const proceduresMap = {};
+
+  result.list.forEach(appointment => {
+    const procedure =
+      appointment.procedure || "Sem procedimento";
+
+    proceduresMap[procedure] =
+      (proceduresMap[procedure] || 0) + 1;
   });
-  doc.pipe(res);
 
-  // Cores do tema AgendaPro
-  const colors = {
-    primary: '#a94f6e',
-    primaryDark: '#903e5a',
-    bg: '#f8f5f6',
-    cardBg: '#ffffff',
-    text: '#332b35',
-    muted: '#81747d',
-    border: '#eadfe4',
-    success: '#267554',
-    danger: '#b54654',
-    headerBg: '#a94f6e',
-    headerText: '#ffffff',
-    tableHeader: '#f2e0e8',
-    tableHeaderText: '#8d405e',
-    tableBorder: '#eadfe4',
-    tableAlt: '#fdfafb'
-  };
+  const rows = Object.entries(proceduresMap)
+    .sort((a, b) => b[1] - a[1]);
 
-  const currency = value =>
-    'R$ ' + Number(value).toFixed(2).replace('.', ',');
-  const formatted = value =>
-    String(value).slice(0, 10).split('-').reverse().join('/');
-  const pageWidth = 595.28;
-  const pageHeight = 841.89;
-  const margin = 40;
-  const contentWidth = pageWidth - margin * 2;
+  const maximum = rows[0]?.[1] || 1;
+  const label = `${fmtDate(start)} até ${fmtDate(end)}`;
 
-  function drawHeader(doc) {
-    doc.save();
-    doc.rect(0, 0, pageWidth, 80).fill(colors.headerBg);
-    doc.fillColor(colors.headerText);
-    doc.fontSize(24).font('Helvetica-Bold');
-    doc.text('✂ AgendaPro', margin, 22, { width: contentWidth });
-    doc.fontSize(11).font('Helvetica');
-    doc.text('Relatório de Atendimentos e Vendas', margin, 52, { width: contentWidth });
-    doc.restore();
-  }
+  $("procedureReport").innerHTML = `
+    <p style="color:var(--muted)">
+      Período: <b>${esc(label)}</b>
+    </p>
+  ` + (
+    rows.length
+      ? rows.map(([procedure, count]) => `
+        <div style="margin:14px 0">
+          <div
+            style="display:flex;justify-content:space-between;margin-bottom:6px"
+          >
+            <span>${esc(procedure)}</span>
+            <b>${count}</b>
+          </div>
 
-  function drawFooter(doc, pageNum) {
-    doc.save();
-    doc.rect(0, pageHeight - 30, pageWidth, 30).fill(colors.bg);
-    doc.fillColor(colors.muted);
-    doc.fontSize(8).font('Helvetica');
-    const generatedAt = new Date().toLocaleString('pt-BR', {
-      timeZone: 'America/Sao_Paulo'
-    });
-    doc.text(`Gerado em ${generatedAt}`, margin, pageHeight - 22, { width: contentWidth / 2 });
-    doc.text(`Página ${pageNum}`, pageWidth / 2, pageHeight - 22, {
-      width: contentWidth / 2,
-      align: 'right'
-    });
-    doc.restore();
-  }
-
-  function ensureSpace(doc, needed, pageNum) {
-    if (doc.y + needed > pageHeight - 40) {
-      drawFooter(doc, pageNum.value);
-      doc.addPage();
-      pageNum.value++;
-      drawHeader(doc);
-      doc.y = 95;
-    }
-  }
-
-  function drawSectionTitle(doc, title) {
-    doc.moveDown(0.8);
-    doc.save();
-    doc.rect(margin, doc.y, contentWidth, 24).fill(colors.tableHeader);
-    doc.fillColor(colors.tableHeaderText);
-    doc.fontSize(12).font('Helvetica-Bold');
-    doc.text(title, margin + 10, doc.y + 6, { width: contentWidth - 20 });
-    doc.restore();
-    doc.y += 30;
-  }
-
-  function drawMetricCard(doc, x, y, w, label, value, highlight = false) {
-    doc.save();
-    doc.roundedRect(x, y, w, 55, 6).fill(highlight ? colors.primary : colors.cardBg);
-    if (!highlight) {
-      doc.strokeColor(colors.border).lineWidth(0.5);
-      doc.roundedRect(x, y, w, 55, 6).stroke();
-    }
-    doc.fillColor(highlight ? '#ffffff' : colors.muted);
-    doc.fontSize(8).font('Helvetica');
-    doc.text(label.toUpperCase(), x + 10, y + 10, { width: w - 20 });
-    doc.fillColor(highlight ? '#ffffff' : colors.text);
-    doc.fontSize(16).font('Helvetica-Bold');
-    doc.text(value, x + 10, y + 28, { width: w - 20 });
-    doc.restore();
-  }
-
-  function drawTableRow(doc, cols, widths, isHeader = false, isAlt = false, pageNum) {
-    const rowHeight = isHeader ? 22 : 20;
-    ensureSpace(doc, rowHeight, pageNum);
-    const startY = doc.y;
-    doc.save();
-    if (isHeader) {
-      doc.rect(margin, startY, contentWidth, rowHeight).fill(colors.tableHeader);
-      doc.fillColor(colors.tableHeaderText);
-      doc.font('Helvetica-Bold').fontSize(8);
-    } else {
-      if (isAlt) {
-        doc.rect(margin, startY, contentWidth, rowHeight).fill(colors.tableAlt);
-      }
-      doc.fillColor(colors.text);
-      doc.font('Helvetica').fontSize(8);
-    }
-    let xPos = margin;
-    for (let i = 0; i < cols.length; i++) {
-      const align = i === cols.length - 1 && !isHeader ? 'right' : 'left';
-      const padding = 6;
-      doc.text(String(cols[i] || ''), xPos + padding, startY + 6, {
-        width: widths[i] - padding * 2,
-        align,
-        lineBreak: false
-      });
-      xPos += widths[i];
-    }
-    if (!isHeader) {
-      doc.strokeColor(colors.tableBorder).lineWidth(0.3);
-      doc.moveTo(margin, startY + rowHeight).lineTo(margin + contentWidth, startY + rowHeight).stroke();
-    }
-    doc.restore();
-    doc.y = startY + rowHeight;
-  }
-
-  // Página inicial
-  const pageNum = { value: 1 };
-  drawHeader(doc);
-  doc.y = 95;
-
-  // Título do relatório
-  doc.fillColor(colors.text);
-  doc.fontSize(18).font('Helvetica-Bold');
-  doc.text(report.label, margin, doc.y, { width: contentWidth, align: 'center' });
-  doc.fontSize(10).font('Helvetica').fillColor(colors.muted);
-  doc.text(
-    `Período: ${formatted(report.start)} a ${formatted(report.end)}`,
-    margin, doc.y + 4, { width: contentWidth, align: 'center' }
+          <div class="bar">
+            <i style="width:${count / maximum * 100}%"></i>
+          </div>
+        </div>
+      `).join("")
+      : `
+        <div class="empty">
+          Não há atendimentos no período selecionado.
+        </div>
+      `
   );
-  doc.y += 35;
-
-  // Cards de resumo financeiro
-  const cardW = (contentWidth - 15) / 3;
-  const cardY = doc.y;
-  drawMetricCard(doc, margin, cardY, cardW, 'Atendimentos', currency(report.serviceRevenue));
-  drawMetricCard(doc, margin + cardW + 7.5, cardY, cardW, 'Vendas', currency(report.productRevenue));
-  drawMetricCard(doc, margin + (cardW + 7.5) * 2, cardY, cardW, 'Total Geral', currency(report.revenue), true);
-  doc.y = cardY + 65;
-
-  // Métricas secundárias
-  const metricCardW = (contentWidth - 20) / 4;
-  const metricY = doc.y;
-  const metrics = [
-    { label: 'Atendimentos', value: String(report.count) },
-    { label: 'Realizados', value: String(report.attended) },
-    { label: 'Ticket Médio', value: currency(report.ticket) },
-    { label: 'Vendas', value: String(report.salesCount) }
-  ];
-  for (let i = 0; i < metrics.length; i++) {
-    const mx = margin + i * (metricCardW + 6.67);
-    doc.save();
-    doc.roundedRect(mx, metricY, metricCardW, 42, 5).fill(colors.bg);
-    doc.strokeColor(colors.border).lineWidth(0.3);
-    doc.roundedRect(mx, metricY, metricCardW, 42, 5).stroke();
-    doc.fillColor(colors.muted).fontSize(7).font('Helvetica');
-    doc.text(metrics[i].label.toUpperCase(), mx + 8, metricY + 8, { width: metricCardW - 16 });
-    doc.fillColor(colors.text).fontSize(13).font('Helvetica-Bold');
-    doc.text(metrics[i].value, mx + 8, metricY + 22, { width: metricCardW - 16 });
-    doc.restore();
-  }
-  doc.y = metricY + 52;
-
-  // Status breakdown
-  doc.moveDown(0.5);
-  doc.fillColor(colors.muted).fontSize(8).font('Helvetica');
-  doc.text(
-    `Status: ${report.attended} realizados · ${report.pending} pendentes · ${report.canceled} cancelados`,
-    margin, doc.y, { width: contentWidth, align: 'center' }
-  );
-  doc.y += 18;
-
-  // Procedimentos mais realizados
-  const procCounts = {};
-  for (const item of report.data.filter(row => row.status !== 'Cancelado')) {
-    procCounts[item.procedimento] = (procCounts[item.procedimento] || 0) + 1;
-  }
-  const procEntries = Object.entries(procCounts).sort((a, b) => b[1] - a[1]);
-  if (procEntries.length) {
-    drawSectionTitle(doc, 'PROCEDIMENTOS MAIS REALIZADOS');
-    const maxCount = procEntries[0]?.[1] || 1;
-    for (const [name, count] of procEntries.slice(0, 8)) {
-      ensureSpace(doc, 22, pageNum);
-      doc.save();
-      doc.fillColor(colors.text).fontSize(9).font('Helvetica');
-      doc.text(name, margin + 8, doc.y + 4, { width: contentWidth - 80, lineBreak: false });
-      doc.fillColor(colors.primary).fontSize(9).font('Helvetica-Bold');
-      doc.text(String(count), margin + contentWidth - 60, doc.y + 4, { width: 30, align: 'right', lineBreak: false });
-      // Barra de progresso
-      const barW = ((contentWidth - 100) * count) / maxCount;
-      doc.rect(margin + 8, doc.y + 16, barW, 3).fill(colors.primary);
-      doc.rect(margin + 8 + barW, doc.y + 16, (contentWidth - 100) - barW, 3).fill(colors.border);
-      doc.restore();
-      doc.y += 24;
-    }
-  }
-
-  // Tabela de atendimentos
-  drawSectionTitle(doc, 'DETALHAMENTO DOS ATENDIMENTOS');
-  const apptCols = ['Data/Hora', 'Cliente', 'Telefone', 'Procedimento', 'Valor', 'Status'];
-  const apptWidths = [70, 140, 80, 130, 55, contentWidth - 70 - 140 - 80 - 130 - 55];
-  drawTableRow(doc, apptCols, apptWidths, true, false, pageNum);
-
-  if (!report.data.length) {
-    ensureSpace(doc, 25, pageNum);
-    doc.fillColor(colors.muted).fontSize(9).font('Helvetica-Oblique');
-    doc.text('Nenhum atendimento registrado neste período.', margin + 10, doc.y + 8, { width: contentWidth - 20 });
-    doc.y += 25;
-  } else {
-    let rowIndex = 0;
-    for (const item of report.data) {
-      const dateStr = `${formatted(item.data)} ${String(item.hora).slice(0, 5)}`;
-      const statusLabel = item.status === 'Atendido' ? '✓ Realizado' :
-        item.status === 'Cancelado' ? '✗ Cancelado' : item.status;
-      drawTableRow(doc, [dateStr, item.cliente, item.telefone || '-', item.procedimento, currency(item.valor), statusLabel], apptWidths, false, rowIndex % 2 === 1, pageNum);
-      rowIndex++;
-    }
-  }
-
-  // Vendas de produtos
-  if (report.sales.length) {
-    ensureSpace(doc, 60, pageNum);
-    drawSectionTitle(doc, 'VENDAS DE PRODUTOS');
-    const saleCols = ['Data', 'Cliente', 'Itens', 'Total', 'Status'];
-    const saleWidths = [65, 130, 170, 65, contentWidth - 65 - 130 - 170 - 65];
-    drawTableRow(doc, saleCols, saleWidths, true, false, pageNum);
-
-    let saleIndex = 0;
-    for (const sale of report.sales) {
-      const itemsSummary = sale.items && sale.items.length
-        ? sale.items.map(i => `${i.quantity}x ${i.name}`).join(', ').slice(0, 60)
-        : '-';
-      drawTableRow(doc, [formatted(sale.date), sale.name, itemsSummary, currency(sale.total), sale.status], saleWidths, false, saleIndex % 2 === 1, pageNum);
-      saleIndex++;
-    }
-  } else {
-    ensureSpace(doc, 40, pageNum);
-    drawSectionTitle(doc, 'VENDAS DE PRODUTOS');
-    doc.fillColor(colors.muted).fontSize(9).font('Helvetica-Oblique');
-    doc.text('Nenhuma venda registrada neste período.', margin + 10, doc.y + 8, { width: contentWidth - 20 });
-    doc.y += 25;
-  }
-
-  // Rodapé da última página
-  drawFooter(doc, pageNum.value);
-  doc.end();
-}));
-// =====================================================
-// FRONTEND E ERROS
-// =====================================================
-app.get('/', security.sendHtml);
-app.use((req, res, next) => {
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ error: 'Rota não encontrada.' });
-  }
-  security.sendHtml(req, res, next);
-});
-app.use((error, _req, res, _next) => {
-  console.error('Erro no AgendaPro:', { code: error.code, status: error.status });
-  if (res.headersSent) return res.end();
-  if (error.code === '23505') {
-    return res.status(409).json({
-      error: 'Já existe um registro com esses dados.'
-    });
-  }
-  if (error.code === '23503') {
-    return res.status(409).json({
-      error: 'Registro vinculado a outros dados. Atualize a lista e tente novamente.'
-    });
-  }
-  if (error instanceof multer.MulterError) {
-    return res.status(400).json({
-      error: error.code === 'LIMIT_FILE_SIZE'
-        ? 'A foto deve ter no máximo 5 MB.'
-        : 'Não foi possível receber a foto.'
-    });
-  }
-  const status = Number(error.status) || 500;
-  res.status(status).json({
-    error: status >= 500
-      ? 'Não foi possível concluir a operação. Tente novamente.'
-      : error.message
-  });
-});
-// =====================================================
-// PREPARAÇÃO DO BANCO
-// =====================================================
-async function ensureSchema() {
-  const schemaPath = path.join(__dirname, '../sql/schema.sql');
-  if (!fs.existsSync(schemaPath)) {
-    throw new Error(`Arquivo schema.sql não encontrado em: ${schemaPath}`);
-  }
-  await pool.query(fs.readFileSync(schemaPath, 'utf8'));
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS configuracoes_agenda (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      dados JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`
-    INSERT INTO configuracoes_agenda(id, dados)
-    VALUES(1, $1::jsonb)
-    ON CONFLICT(id) DO NOTHING
-  `, [JSON.stringify(defaultOpeningHours())]);
-  // Cria as estruturas novas sem apagar os dados existentes.
-  await pool.query(`
-    ALTER TABLE atendimentos
-      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ
-      NOT NULL DEFAULT NOW();
-    CREATE TABLE IF NOT EXISTS produtos (
-      id BIGSERIAL PRIMARY KEY,
-      nome VARCHAR(150) NOT NULL UNIQUE,
-      descricao TEXT,
-      foto_url TEXT,
-      preco NUMERIC(10,2) NOT NULL DEFAULT 0,
-      ativo BOOLEAN NOT NULL DEFAULT TRUE,
-      criado_por BIGINT
-        REFERENCES usuarios(id)
-        ON DELETE SET NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CONSTRAINT produtos_nome_check
-        CHECK (LENGTH(BTRIM(nome)) > 0),
-      CONSTRAINT produtos_preco_check
-        CHECK (preco >= 0 AND preco <= 99999999.99)
-    );
-    ALTER TABLE produtos
-      ADD COLUMN IF NOT EXISTS foto_url TEXT;
-    CREATE TABLE IF NOT EXISTS vendas (
-      id BIGSERIAL PRIMARY KEY,
-      cliente_id BIGINT NOT NULL
-        REFERENCES clientes(id)
-        ON DELETE RESTRICT,
-      data DATE NOT NULL,
-      status VARCHAR(30) NOT NULL DEFAULT 'Confirmada',
-      observacao TEXT,
-      criado_por BIGINT
-        REFERENCES usuarios(id)
-        ON DELETE SET NULL,
-      updated_by BIGINT
-        REFERENCES usuarios(id)
-        ON DELETE SET NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CONSTRAINT vendas_status_check
-        CHECK (status IN ('Confirmada', 'Cancelada'))
-    );
-    CREATE TABLE IF NOT EXISTS venda_itens (
-      id BIGSERIAL PRIMARY KEY,
-      venda_id BIGINT NOT NULL
-        REFERENCES vendas(id)
-        ON DELETE CASCADE,
-      produto_id BIGINT NOT NULL
-        REFERENCES produtos(id)
-        ON DELETE RESTRICT,
-      produto_nome VARCHAR(150) NOT NULL,
-      quantidade INTEGER NOT NULL DEFAULT 1,
-      valor_unitario NUMERIC(10,2) NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CONSTRAINT venda_itens_nome_check
-        CHECK (LENGTH(BTRIM(produto_nome)) > 0),
-      CONSTRAINT venda_itens_quantidade_check
-        CHECK (quantidade > 0),
-      CONSTRAINT venda_itens_valor_check
-        CHECK (
-          valor_unitario >= 0
-          AND valor_unitario <= 99999999.99
-        )
-    );
-    CREATE INDEX IF NOT EXISTS idx_produtos_ativo_nome
-      ON produtos(ativo, nome);
-    CREATE INDEX IF NOT EXISTS idx_vendas_data
-      ON vendas(data);
-    CREATE INDEX IF NOT EXISTS idx_vendas_cliente
-      ON vendas(cliente_id);
-    CREATE INDEX IF NOT EXISTS idx_vendas_status_data
-      ON vendas(status, data);
-    CREATE INDEX IF NOT EXISTS idx_venda_itens_venda
-      ON venda_itens(venda_id);
-    CREATE INDEX IF NOT EXISTS idx_venda_itens_produto
-      ON venda_itens(produto_id);
-  `);
-  
-    await pool.query(`
-      ALTER TABLE vendas DROP CONSTRAINT IF EXISTS vendas_status_check;
-      ALTER TABLE vendas ADD CONSTRAINT vendas_status_check CHECK (status IN ('Confirmada', 'Cancelada', 'Pendente'));
-    `);
-    
-console.log('Banco de dados verificado e preparado.');
 }
-// =====================================================
-// INICIALIZAÇÃO
-// =====================================================
-async function startServer() {
+
+function applyReportFilter() {
+  const start = $("reportStartDate").value;
+  const end = $("reportEndDate").value;
+
+  if (!start || !end) {
+    alert("Selecione a data inicial e a data final.");
+    return;
+  }
+
+  if (start > end) {
+    alert(
+      "A data inicial precisa ser anterior ou igual à data final."
+    );
+    return;
+  }
+
+  updateReportPeriod(start, end);
+}
+
+function clearReportFilter() {
+  const today = localDate();
+
+  $("reportStartDate").value =
+    today.slice(0, 7) + "-01";
+
+  $("reportEndDate").value =
+    monthEnd(today);
+
+  updateReportPeriod(
+    $("reportStartDate").value,
+    $("reportEndDate").value
+  );
+}
+
+async function renderReports() {
+  if (currentUser?.role !== "admin") return;
+
   try {
-    await ensureSchema();
-    await security.ensureSchema();
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`AgendaPro rodando na porta ${PORT}`);
-      console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
-    });
+    const summary = await api(
+      "/api/reports/summary"
+    );
+
+    $("rToday").textContent =
+      money(summary.today.revenue);
+
+    $("rMonth").textContent =
+      money(summary.month.revenue);
+
+    $("rYear").textContent =
+      money(summary.year.revenue);
+
+    const start = $("reportStartDate").value;
+    const end = $("reportEndDate").value;
+
+    if (start && end && start <= end) {
+      updateReportPeriod(start, end);
+    }
   } catch (error) {
-    console.error('ERRO AO INICIAR O AGENDAPRO');
-    console.error(error);
-    process.exit(1);
+    console.error(
+      "Erro ao carregar relatórios:",
+      error
+    );
   }
 }
-startServer();
+
+async function downloadReportPDF(type) {
+  try {
+    const start =
+      $("reportStartDate").value || localDate();
+
+    const end =
+      $("reportEndDate").value || localDate();
+
+    const params = { type };
+
+    if (type === "day") {
+      params.date = end;
+    }
+
+    if (type === "month") {
+      params.month = start.slice(0, 7);
+    }
+
+    if (type === "year") {
+      params.year = start.slice(0, 4);
+    }
+
+    const response = await fetch(
+      "/api/reports/pdf?" +
+      new URLSearchParams(params),
+      {
+        credentials: "include"
+      }
+    );
+
+    if (!response.ok) {
+      const data = await response.json()
+        .catch(() => ({}));
+
+      throw new Error(
+        data.error || "Não foi possível gerar o PDF."
+      );
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = `Relatorio_${type}.pdf`;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 60000);
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+// =====================================================
+// ALTERAÇÃO DE SENHA
+// =====================================================
+
+async function changePassword(event) {
+  event.preventDefault();
+
+  const currentPassword = $("currentPassword").value;
+  const newPassword = $("newPassword").value;
+  const confirmPassword = $("confirmPassword").value;
+  const message = $("passwordMessage");
+
+  message.textContent = "";
+  message.style.color = "var(--danger)";
+
+  if (
+    !currentPassword ||
+    !newPassword ||
+    !confirmPassword
+  ) {
+    message.textContent =
+      "Preencha todos os campos.";
+    return;
+  }
+
+  if (newPassword !== confirmPassword) {
+    message.textContent =
+      "A nova senha e a confirmação não são iguais.";
+    return;
+  }
+
+  if (newPassword.length < 6) {
+    message.textContent =
+      "A nova senha deve ter pelo menos 6 caracteres.";
+    return;
+  }
+
+  if (currentPassword === newPassword) {
+    message.textContent =
+      "A nova senha deve ser diferente da senha atual.";
+    return;
+  }
+
+  try {
+    const result = await api(
+      "/api/auth/password",
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+          confirmPassword
+        })
+      }
+    );
+
+    message.style.color = "var(--success)";
+
+    message.textContent =
+      result.message || "Senha alterada com sucesso!";
+
+    $("passwordForm").reset();
+  } catch (error) {
+    message.textContent = error.message;
+  }
+}
+
+function clearPasswordForm() {
+  $("passwordForm").reset();
+  $("passwordMessage").textContent = "";
+}
+
+// =====================================================
+// AGENDAMENTO PÚBLICO
+// =====================================================
+
+async function initClientPage() {
+  try {
+    [procedures, openingHours] = await Promise.all([
+      api("/api/procedures"),
+      api("/api/opening-hours")
+    ]);
+  } catch (error) {
+    alert(error.message);
+    return;
+  }
+
+  $("clientBookingForm").reset();
+
+  $("cbPhotoPreview").style.display = "none";
+  $("clientStepForm").style.display = "block";
+  $("clientSuccess").style.display = "none";
+  $("cbDate").value = localDate();
+
+  fillProcedureSelect(
+    $("clientProcedure"),
+    true
+  );
+
+  selectedSlot = "";
+  renderClientSlots();
+}
+
+$("cbDate").addEventListener(
+  "change",
+  renderClientSlots
+);
+
+async function renderClientSlots() {
+  const date =
+    $("cbDate").value || localDate();
+
+  selectedSlot = "";
+
+  $("cbSlots").innerHTML = `
+    <div class="empty">
+      Carregando horários...
+    </div>
+  `;
+
+  const requestId = ++clientSlotsRequestId;
+
+  try {
+    const data = await api(
+      "/api/public/slots?date=" +
+      encodeURIComponent(date)
+    );
+
+    if (requestId !== clientSlotsRequestId) {
+      return;
+    }
+
+    selectedSlot = "";
+
+    const maxPerSlot =
+      Number(data.maxPerSlot) || 3;
+
+    $("cbSlots").innerHTML =
+      (data.slots || []).map(hour => {
+        const count =
+          Number(data.bookingsByTime?.[hour]) || 0;
+
+        const isFull = count >= maxPerSlot;
+
+        if (isFull) {
+          return `
+            <button
+              type="button"
+              class="slot slot-full"
+              disabled
+              aria-disabled="true"
+            >
+              <strong>${esc(hour)}</strong>
+              <span>Horário indisponível</span>
+
+              <small>
+                Limite de ${maxPerSlot} atendimentos atingido
+              </small>
+            </button>
+          `;
+        }
+
+        return `
+          <button
+            type="button"
+            class="slot free multi-slot"
+            data-time="${esc(hour)}"
+            onclick="pickSlot(${idArgument(hour)})"
+          >
+            <strong>${esc(hour)}</strong>
+            <span>Disponível</span>
+
+            <small>
+              ${
+                count
+                  ? count + "/" + maxPerSlot + " ocupado(s) · aceita novas reservas"
+                  : "Clique para escolher"
+              }
+            </small>
+          </button>
+        `;
+      }).join("") || `
+        <div class="empty">
+          Nenhum horário disponível nesta data.
+          Escolha outro dia.
+        </div>
+      `;
+  } catch (error) {
+    if (requestId !== clientSlotsRequestId) {
+      return;
+    }
+
+    $("cbSlots").innerHTML = `
+      <div class="empty">
+        Não foi possível carregar os horários.
+        Selecione a data novamente.
+      </div>
+    `;
+
+    alert(error.message);
+  }
+}
+
+function pickSlot(hour) {
+  selectedSlot = hour;
+
+  document.querySelectorAll("#cbSlots .slot")
+    .forEach(element => {
+      element.classList.toggle(
+        "selected",
+        element.dataset.time === hour
+      );
+    });
+}
+
+$("cbPhoto").addEventListener(
+  "change",
+  () => {
+    const file = $("cbPhoto").files[0];
+
+    if (!file) return;
+
+    const reader = new FileReader();
+
+    reader.onload = event => {
+      $("cbPhotoPreview").src = event.target.result;
+      $("cbPhotoPreview").style.display = "block";
+    };
+
+    reader.readAsDataURL(file);
+  }
+);
+
+$("cbPhone").type = "tel";
+$("cbPhone").inputMode = "numeric";
+$("cbPhone").maxLength = 16;
+$("cbPhone").placeholder = "(00) 9 0000-0000";
+$("cbPhone").addEventListener("input", (e) => {
+  let v = e.target.value.replace(/\D/g, "");
+  if (v.length > 11) v = v.slice(0, 11);
+  
+  let formatted = "";
+  if (v.length > 0) formatted += "(" + v.substring(0, 2);
+  if (v.length >= 2) formatted += ") ";
+  if (v.length > 2) formatted += v.substring(2, 3);
+  if (v.length > 3) formatted += " " + v.substring(3, 7);
+  if (v.length > 7) formatted += "-" + v.substring(7, 11);
+  
+  e.target.value = formatted;
+});
+
+$("clientBookingForm").addEventListener(
+  "submit",
+  async event => {
+    event.preventDefault();
+
+    if (!selectedSlot) {
+      alert("Escolha um horário disponível.");
+      return;
+    }
+
+    if (publicBookingSaving) return;
+
+    publicBookingSaving = true;
+
+    const submit =
+      event.currentTarget.querySelector(
+        'button[type="submit"], button:not([type])'
+      );
+
+    if (submit) {
+      submit.disabled = true;
+    }
+
+    try {
+      const form = new FormData();
+
+      form.append(
+        "name",
+        $("cbName").value.trim()
+      );
+
+      form.append(
+        "phone",
+        $("cbPhone").value.replace(/\D/g, "").trim()
+      );
+
+      form.append("date", $("cbDate").value);
+      form.append("time", selectedSlot);
+
+      form.append(
+        "procedureId",
+        $("clientProcedure").value
+      );
+
+      form.append(
+        "note",
+        $("cbNote").value.trim()
+      );
+
+      if ($("cbPhoto").files[0]) {
+        form.append(
+          "photo",
+          $("cbPhoto").files[0]
+        );
+      }
+
+      const result = await api(
+        "/api/public/bookings",
+        {
+          method: "POST",
+          body: form
+        }
+      );
+
+      $("clientStepForm").style.display = "none";
+      $("clientSuccess").style.display = "block";
+      $("successDetails").textContent = result.details;
+    } catch (error) {
+      alert(error.message);
+      renderClientSlots();
+    } finally {
+      publicBookingSaving = false;
+
+      if (submit) {
+        submit.disabled = false;
+      }
+    }
+  }
+);
+
+function newClientBooking() {
+  initClientPage();
+}
+
+// =====================================================
+// TEMA CLARO / ESCURO
+// =====================================================
+
+const themeStorageKey = "agendapro.theme";
+let preferredTheme = null;
+
+const themeMedia = window.matchMedia
+  ? window.matchMedia("(prefers-color-scheme: dark)")
+  : null;
+
+function applyTheme(theme, save = false) {
+  const dark = theme === "dark";
+
+  document.documentElement.dataset.theme =
+    dark ? "dark" : "light";
+
+  document.documentElement.style.colorScheme =
+    dark ? "dark" : "light";
+
+  if (save) {
+    preferredTheme = dark ? "dark" : "light";
+
+    try {
+      localStorage.setItem(
+        themeStorageKey,
+        preferredTheme
+      );
+    } catch {
+      // Continua funcionando sem armazenamento local.
+    }
+  }
+
+  document.querySelectorAll(".theme-toggle")
+    .forEach(button => {
+      button.textContent =
+        dark ? "☀️ Tema claro" : "🌙 Tema escuro";
+
+      button.setAttribute(
+        "aria-label",
+        dark
+          ? "Ativar tema claro"
+          : "Ativar tema escuro"
+      );
+
+      button.setAttribute(
+        "aria-pressed",
+        String(dark)
+      );
+
+      button.title = dark
+        ? "Mudar para tema claro"
+        : "Mudar para tema escuro";
+    });
+
+  const meta = document.querySelector(
+    'meta[name="theme-color"]'
+  );
+
+  if (meta) {
+    meta.content = dark
+      ? "#171b24"
+      : "#a94f6e";
+  }
+}
+
+function mountThemeUI() {
+  if ($("agendaThemeStyles")) return;
+
+  const style = document.createElement("style");
+
+  style.id = "agendaThemeStyles";
+
+  style.textContent = `
+    .theme-toggle {
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      min-height:44px;
+      padding:10px 14px;
+      border:1px solid var(--border,#e1cdd4);
+      border-radius:12px;
+      background:var(--card,#fff);
+      color:var(--text,#372c35);
+      font:inherit;
+      font-size:14px;
+      font-weight:650;
+      cursor:pointer;
+    }
+
+    .theme-toggle:focus-visible {
+      outline:3px solid #b05c7e;
+      outline-offset:3px;
+    }
+
+    .theme-sidebar {
+      display:flex;
+      justify-content:stretch;
+      margin:12px 0;
+    }
+
+    .theme-sidebar .theme-toggle {
+      width:100%;
+    }
+
+    .theme-public {
+      display:flex;
+      justify-content:flex-end;
+      padding:12px 18px;
+    }
+
+    #authScreen {
+      position:relative;
+      padding-top:76px;
+      box-sizing:border-box;
+    }
+
+    .theme-auth {
+      position:absolute;
+      right:18px;
+      top:18px;
+      z-index:2;
+    }
+
+    .booking-client-notice {
+      padding:12px 14px;
+      border:1px solid var(--border,#e1cdd4);
+      background:var(--bg,#fdf6f4);
+      color:var(--text,#372c35);
+      border-radius:10px;
+      line-height:1.5;
+    }
+
+    .booking-client-notice[hidden] {
+      display:none!important;
+    }
+
+    #appointmentForm input[readonly] {
+      opacity:1;
+      background:var(--bg,#f4f1f3);
+      color:var(--text,#372c35);
+      cursor:default;
+    }
+
+    html[data-theme="dark"] {
+      --bg:#11151c;
+      --card:#1c222d;
+      --surface:#1c222d;
+      --surface-soft:#252d3a;
+      --text:#edf0f7;
+      --muted:#bbc2d0;
+      --primary:#a94f6e;
+      --primary2:#c9678b;
+      --border:#414b5e;
+      --success:#8cdbb2;
+      --danger:#ff9caf;
+      --warning:#f1cb83;
+      --sbar-bg:#171d27;
+      --sbar-text:#d1d7e3;
+      --sbar-active-bg:#403043;
+      --sbar-active-text:#ffe2ed;
+      --sbar-border:#414b5e;
+      --sidebar-bg:#171d27;
+      --shadow:0 8px 30px #0004;
+      color-scheme:dark;
+    }
+
+    html[data-theme="dark"] body,
+    html[data-theme="dark"] #app,
+    html[data-theme="dark"] main,
+    html[data-theme="dark"] .main,
+    html[data-theme="dark"] #clientPage {
+      background:#11151c!important;
+      color:#edf0f7!important;
+    }
+
+    html[data-theme="dark"] #authScreen {
+      background:linear-gradient(135deg,#141924,#302338)!important;
+      color:#edf0f7!important;
+    }
+
+    html[data-theme="dark"] :is(
+      .authBox,.auth-box,.auth-card,.auth-shell,.auth-panel,
+      .auth-form,.auth-form-panel,.login-card,.panel,.card,
+      .modal-box,.modal-content,.modalBox,.client-card,
+      .booking-card,.clientBox,dialog,#dailyToast
+    ) {
+      background:#1c222d!important;
+      color:#edf0f7!important;
+      border-color:#414b5e!important;
+    }
+
+    html[data-theme="dark"] :is(
+      .sidebar,aside,.app-header,.topbar,
+      .top-bar,.header,.mobile-header
+    ) {
+      background:#171d27!important;
+      color:#edf0f7!important;
+      border-color:#414b5e!important;
+    }
+
+    html[data-theme="dark"] :is(
+      h1,h2,h3,h4,label,.brand,.authLogo,.value,.stat-value
+    ) {
+      color:#edf0f7;
+    }
+
+    html[data-theme="dark"] :is(
+      .muted,.small,.label,.empty,.authSub,.auth-subtitle,
+      .subtitle,.top p,.section-heading p,small,
+      #futureCount,#returnClientLabel
+    ) {
+      color:#bbc2d0!important;
+    }
+
+    html[data-theme="dark"] :is(
+      .role-btn,.roleBtn,.role-card,.role-option,
+      .role-button,.notification-bell,.theme-toggle
+    ) {
+      background:#252d3a!important;
+      color:#edf0f7!important;
+      border-color:#505d73!important;
+    }
+
+    html[data-theme="dark"] :is(input,select,textarea) {
+      background:#141a24!important;
+      color:#edf0f7!important;
+      border-color:#59657b!important;
+    }
+
+    html[data-theme="dark"] :is(input,textarea)::placeholder {
+      color:#a8b3c7!important;
+      opacity:1;
+    }
+
+    html[data-theme="dark"] :is(input,select,textarea):focus {
+      outline:2px solid #f0a6c2;
+      outline-offset:2px;
+    }
+
+    html[data-theme="dark"] input[readonly] {
+      background:#293241!important;
+    }
+
+    html[data-theme="dark"] :is(
+      .btn.secondary,.btn.ghost,.btn.outline,.icon-btn,.close-btn
+    ) {
+      background:#30394a!important;
+      color:#edf0f7!important;
+      border-color:#59657b!important;
+    }
+
+    html[data-theme="dark"] .btn.primary {
+      background:#a04467!important;
+      color:#fff!important;
+      border-color:#cb7c9a!important;
+    }
+
+    html[data-theme="dark"] .btn.success {
+      background:#285b46!important;
+      color:#edfff6!important;
+      border-color:#6aa887!important;
+    }
+
+    html[data-theme="dark"] .btn.danger {
+      background:#813448!important;
+      color:#fff!important;
+      border-color:#c9778a!important;
+    }
+
+    html[data-theme="dark"] :is(
+      .nav button,.sidebar-bottom button,#configNavBtn
+    ) {
+      color:#d1d7e3!important;
+    }
+
+    html[data-theme="dark"] :is(
+      .nav button.active,.nav button:hover,#configNavBtn.active
+    ) {
+      background:#403043!important;
+      color:#ffe2ed!important;
+    }
+
+    html[data-theme="dark"] :is(table,tbody,tr,td) {
+      background:transparent;
+      color:#edf0f7;
+      border-color:#414b5e!important;
+    }
+
+    html[data-theme="dark"] th {
+      background:#252d3a!important;
+      color:#d1d7e3!important;
+      border-color:#414b5e!important;
+    }
+
+    html[data-theme="dark"] tr:hover td {
+      background:#252d3a!important;
+    }
+
+    html[data-theme="dark"] :is(.slot,.slot.free) {
+      background:#1d352e!important;
+      color:#d8f5e7!important;
+      border-color:#487462!important;
+    }
+
+    html[data-theme="dark"] .slot.busy {
+      background:#402b36!important;
+      color:#ffdde8!important;
+    }
+
+    html[data-theme="dark"] .slot.selected {
+      background:#43314e!important;
+      color:#fff!important;
+      outline:3px solid #dba0ec!important;
+    }
+
+    html[data-theme="dark"] :is(.b-agendado,.badge.b-agendado) {
+      background:#45303e!important;
+      color:#ffdbeb!important;
+    }
+
+    html[data-theme="dark"] :is(.b-confirmado,.badge.b-confirmado) {
+      background:#254c3b!important;
+      color:#c5f6dd!important;
+    }
+
+    html[data-theme="dark"] :is(.b-cancelado,.badge.b-cancelado) {
+      background:#582d3b!important;
+      color:#ffd1dc!important;
+    }
+
+    html[data-theme="dark"] :is(.b-atendido,.badge.b-atendido) {
+      background:#4a4026!important;
+      color:#ffe6ad!important;
+    }
+
+    html[data-theme="dark"] :is(.b-retorno,.badge.b-retorno) {
+      background:#45315d!important;
+      color:#ebd3ff!important;
+    }
+
+    html[data-theme="dark"] :is(
+      .attendance-row,.booking-client-notice
+    ) {
+      background:#252d3a!important;
+      color:#edf0f7!important;
+      border-color:#505d73!important;
+    }
+
+    html[data-theme="dark"] :is(
+      #returnMessage,#liveUpdateMessage,#loginError
+    ) {
+      color:#ffafc1!important;
+    }
+
+    html[data-theme="dark"] .bar {
+      background:#30394a!important;
+    }
+
+    html[data-theme="dark"] dialog::backdrop {
+      background:#0009;
+    }
+
+    @media(max-width:600px) {
+      .theme-auth {top:12px;right:12px}
+      .theme-toggle {font-size:13px}
+      .theme-public {padding:10px 12px}
+    }
+  `;
+
+  document.head.appendChild(style);
+
+  const addButton = (
+    parent,
+    className,
+    before = null
+  ) => {
+    if (!parent) return;
+
+    const host = document.createElement("div");
+    host.className = className;
+
+    const button = document.createElement("button");
+
+    button.type = "button";
+    button.className = "theme-toggle";
+
+    button.onclick = () => {
+      applyTheme(
+        document.documentElement.dataset.theme === "dark"
+          ? "light"
+          : "dark",
+        true
+      );
+    };
+
+    host.appendChild(button);
+
+    if (before) {
+      parent.insertBefore(host, before);
+    } else {
+      parent.prepend(host);
+    }
+  };
+
+  addButton(
+    $("authScreen"),
+    "theme-auth"
+  );
+
+  const nav = document.querySelector(".nav");
+
+  if (nav) {
+    addButton(
+      nav.parentElement,
+      "theme-sidebar",
+      nav
+    );
+  }
+
+  addButton(
+    $("clientPage"),
+    "theme-public"
+  );
+
+  try {
+    const saved = localStorage.getItem(
+      themeStorageKey
+    );
+
+    if (saved === "dark" || saved === "light") {
+      preferredTheme = saved;
+    }
+  } catch {
+    // Sem armazenamento, usa a preferência do aparelho.
+  }
+
+  applyTheme(
+    preferredTheme ||
+    (themeMedia?.matches ? "dark" : "light")
+  );
+
+  const followSystem = event => {
+    if (!preferredTheme) {
+      applyTheme(
+        event.matches ? "dark" : "light"
+      );
+    }
+  };
+
+  if (themeMedia?.addEventListener) {
+    themeMedia.addEventListener(
+      "change",
+      followSystem
+    );
+  }
+
+  window.addEventListener(
+    "storage",
+    event => {
+      if (
+        event.key !== themeStorageKey &&
+        event.key !== null
+      ) {
+        return;
+      }
+
+      preferredTheme =
+        event.newValue === "dark" ||
+        event.newValue === "light"
+          ? event.newValue
+          : null;
+
+      applyTheme(
+        preferredTheme ||
+        (themeMedia?.matches ? "dark" : "light")
+      );
+    }
+  );
+}
+
+// =====================================================
+// CORREÇÃO DE CONTRASTE DO TEMA ESCURO
+// =====================================================
+
+function mountDarkContrastFix() {
+  const styleId = "agendaDarkContrastFix";
+  let style = document.getElementById(styleId);
+
+  if (!style) {
+    style = document.createElement("style");
+    style.id = styleId;
+    document.head.appendChild(style);
+  }
+
+  style.textContent = `
+    html[data-theme="dark"] {
+      --primary:#f0a6c2;
+      --primary-hover:#ffd0e1;
+      --primary2:#f0a6c2;
+      --text:#f1f5f9;
+      --muted:#c2ccda;
+      --border:#526179;
+    }
+
+    html[data-theme="dark"] :is(
+      .auth-intro,.auth-content,.mini-card,.note-box,.user-tag,
+      .brand-icon,.role-icon,.step-number,.salon-product,
+      .salon-summary>div,.booking-client-notice
+    ) {
+      background:#252d3a!important;
+      color:#f1f5f9!important;
+      border-color:#526179!important;
+    }
+
+    html[data-theme="dark"] :is(
+      .auth-benefits,.auth-benefits div,.header-context strong,
+      .mobile-brand,.field label,.mini-card strong,.booking-step,
+      .card .value,.salon-product h3,.salon-summary strong
+    ) {
+      color:#f1f5f9!important;
+    }
+
+    html[data-theme="dark"] :is(
+      .sidebar-caption,.sidebar-footnote,.auth-note,.role-option small,
+      .role-arrow,.mini-card span,.note-box p,.user-tag small,
+      .card .small,.card .label,.muted,.empty,.small,small,
+      .salon-history-note,.salon-line-total,.salon-product p
+    ) {
+      color:#c2ccda!important;
+    }
+
+    html[data-theme="dark"] :is(
+      a:not(.btn),.eyebrow,.brand span
+    ) {
+      color:#f0a6c2!important;
+    }
+
+    html[data-theme="dark"] a:not(.btn):hover {
+      color:#ffd0e1!important;
+      text-decoration:underline;
+    }
+
+    html[data-theme="dark"] :is(
+      .sidebar-footer button,.sidebar-bottom button,.nav button
+    ) {
+      color:#e2e8f0!important;
+    }
+
+    html[data-theme="dark"] :is(
+      .sidebar-footer button:hover,.sidebar-bottom button:hover,
+      .nav button:hover,.nav button.active,#configNavBtn.active
+    ) {
+      background:#443044!important;
+      color:#ffe2ed!important;
+    }
+
+    html[data-theme="dark"] :is(
+      .close,.close-btn,.icon-btn,.theme-toggle,
+      .btn.secondary,.btn.ghost,.btn.outline
+    ) {
+      background:#303e52!important;
+      color:#f1f5f9!important;
+      border-color:#7b8ba3!important;
+    }
+
+    html[data-theme="dark"] .btn.primary {
+      background:#a04467!important;
+      color:#ffffff!important;
+      border-color:#eea6c1!important;
+    }
+
+    html[data-theme="dark"] .btn.primary:hover:not(:disabled) {
+      background:#863553!important;
+    }
+
+    html[data-theme="dark"] .btn.success {
+      background:#285b46!important;
+      color:#edfff6!important;
+      border-color:#86c9a4!important;
+    }
+
+    html[data-theme="dark"] .btn.danger {
+      background:#813448!important;
+      color:#ffffff!important;
+      border-color:#e49aab!important;
+    }
+
+    html[data-theme="dark"] .notification-count {
+      background:#f0a6c2!important;
+      color:#291825!important;
+    }
+
+    html[data-theme="dark"] :is(
+      .role-option,.theme-toggle
+    ):hover {
+      border-color:#f0a6c2!important;
+    }
+
+    html[data-theme="dark"] :is(input,select,textarea) {
+      background:#141a24!important;
+      color:#f1f5f9!important;
+      border-color:#7b8ba3!important;
+      color-scheme:dark;
+    }
+
+    html[data-theme="dark"] :is(input,textarea)::placeholder {
+      color:#bac6d8!important;
+      opacity:1;
+    }
+
+    html[data-theme="dark"] :is(option,optgroup) {
+      background:#141a24!important;
+      color:#f1f5f9!important;
+    }
+
+    html[data-theme="dark"] input::file-selector-button {
+      background:#303e52!important;
+      color:#f1f5f9!important;
+      border:1px solid #7b8ba3!important;
+      padding:8px 12px;
+      border-radius:7px;
+    }
+
+    html[data-theme="dark"] input[readonly] {
+      background:#293241!important;
+      color:#e2e8f0!important;
+    }
+
+    html[data-theme="dark"] input:is(
+      [type="checkbox"],[type="radio"]
+    ) {
+      accent-color:#f0a6c2;
+    }
+
+    html[data-theme="dark"] :is(
+      button,input,select,textarea
+    ):disabled {
+      opacity:1!important;
+      background:#293241!important;
+      color:#aab6c8!important;
+      border-color:#526179!important;
+      cursor:not-allowed;
+    }
+
+    html[data-theme="dark"] :is(
+      button,a,input,select,textarea
+    ):focus-visible {
+      outline:3px solid #ffc9df!important;
+      outline-offset:3px;
+    }
+
+    html[data-theme="dark"] :is(.slot,.slot.free) {
+      background:#1d352e!important;
+      color:#d8f5e7!important;
+      border-color:#719987!important;
+    }
+
+    html[data-theme="dark"] .slot.busy {
+      background:#402b36!important;
+      color:#ffdde8!important;
+      border-color:#ba869b!important;
+    }
+
+    html[data-theme="dark"] .slot.selected {
+      background:#43314e!important;
+      color:#ffffff!important;
+      outline:3px solid #dba0ec!important;
+    }
+
+    html[data-theme="dark"] .slot :is(
+      strong,b,span,p,small
+    ) {
+      color:inherit!important;
+    }
+
+    html[data-theme="dark"] :is(
+      .success-mark,.success-card
+    ) {
+      background:#203b30!important;
+      color:#d5f7e3!important;
+    }
+
+    html[data-theme="dark"] .success-card p {
+      color:#d5f7e3!important;
+    }
+
+    html[data-theme="dark"] :is(
+      .modal,.menu-overlay
+    ) {
+      background:#080c14b8!important;
+    }
+
+    html[data-theme="dark"] dialog::backdrop {
+      background:#080c14b8!important;
+    }
+
+    html[data-theme="dark"] .bar i {
+      background:#f0a6c2!important;
+    }
+
+    html[data-theme="dark"] ::selection {
+      background:#f0a6c2;
+      color:#291825;
+    }
+
+    @media(max-width:600px) {
+      html[data-theme="dark"] :is(
+        input,select,textarea
+      ) {
+        font-size:16px;
+      }
+
+      html[data-theme="dark"] :is(
+        .btn,.theme-toggle,.icon-btn,.close
+      ) {
+        min-height:44px;
+      }
+    }
+  `;
+}
+
+// =====================================================
+// INICIALIZAÇÃO FINAL
+// =====================================================
+
+function bindPasswordForm() {
+  const form = $("passwordForm");
+
+  if (form && !form.dataset.bound) {
+    form.dataset.bound = "true";
+
+    form.addEventListener(
+      "submit",
+      changePassword
+    );
+  }
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener(
+    "DOMContentLoaded",
+    bindPasswordForm
+  );
+} else {
+  bindPasswordForm();
+}
+
+async function boot() {
+  try {
+    const data = await api("/api/auth/me");
+
+    currentUser = data.user;
+    enterApp();
+  } catch {
+    $("authScreen").style.display = "flex";
+  }
+}
+
+
+// =====================================================
+// COMPRAS DE PRODUTOS (CLIENTE)
+// =====================================================
+async function initComprasPage() {
+  try {
+    const products = await api("/api/public/products");
+    renderProductsList(products);
+  } catch (error) {
+    alert(error.message);
+  }
+  cart = [];
+  updateCartUI();
+}
+
+function renderProductsList(products) {
+  const container = $("productsList");
+  if (!products.length) {
+    container.innerHTML = '<div class="empty">Nenhum produto disponível no momento.</div>';
+    return;
+  }
+  container.innerHTML = products.map(p => `
+    <div class="product-card">
+      ${p.photo ? `<img src="${esc(p.photo)}" alt="${esc(p.name)}">` : '<div style="height:180px;background:#f0f0f0;border-radius:10px;margin-bottom:15px;display:flex;align-items:center;justify-content:center;color:#999">Sem foto</div>'}
+      <h3>${esc(p.name)}</h3>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:10px">${esc(p.description || '')}</p>
+      <div class="price">${money(p.price)}</div>
+      <button type="button" class="btn primary full-width" onclick="addToCart(${idArgument(p.id)}, '${esc(p.name)}', ${p.price})">
+        Adicionar ao Carrinho
+      </button>
+    </div>
+  `).join("");
+}
+
+function addToCart(id, name, price) {
+  const existing = cart.find(item => item.productId === id);
+  if (existing) {
+    existing.quantity++;
+  } else {
+    cart.push({ productId: id, name, price, quantity: 1 });
+  }
+  updateCartUI();
+  // Feedback visual simples
+  const btn = event.target;
+  const originalText = btn.textContent;
+  btn.textContent = "Adicionado!";
+  btn.disabled = true;
+  setTimeout(() => {
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }, 1000);
+}
+
+function updateCartUI() {
+  const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const summary = $("cartSummary");
+  const countSpan = $("cartCount");
+  const totalSpan = $("cartTotal");
+  
+  if (count > 0) {
+    summary.style.display = "block";
+    countSpan.textContent = count;
+    totalSpan.textContent = money(total);
+  } else {
+    summary.style.display = "none";
+  }
+}
+
+function openCartModal() {
+  const modal = $("cartModal");
+  const itemsContainer = $("cartItems");
+  
+  if (!cart.length) {
+    itemsContainer.innerHTML = '<p class="empty">Seu carrinho está vazio.</p>';
+  } else {
+    itemsContainer.innerHTML = cart.map((item, index) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <strong>${esc(item.name)}</strong><br>
+          <small>${money(item.price)} x ${item.quantity}</small>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-weight:bold">${money(item.price * item.quantity)}</span>
+          <button type="button" class="btn danger btn-sm" onclick="removeFromCart(${index})">Remover</button>
+        </div>
+      </div>
+    `).join("");
+  }
+  
+  const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  $("cartTotal").textContent = money(total);
+  
+  modal.classList.add("show");
+}
+
+function closeCartModal() {
+  $("cartModal").classList.remove("show");
+}
+
+function removeFromCart(index) {
+  cart.splice(index, 1);
+  updateCartUI();
+  openCartModal(); // Re-renderiza o modal
+}
+
+$("checkoutForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!cart.length) {
+    alert("Seu carrinho está vazio.");
+    return;
+  }
+  
+  const name = $("checkoutName").value.trim();
+  const phone = $("checkoutPhone").value.replace(/\D/g, "").trim();
+  
+  if (!name || !phone) {
+    alert("Preencha seu nome e WhatsApp.");
+    return;
+  }
+  
+  try {
+    // Primeiro, garante que o cliente existe (ou cria)
+    // O endpoint /api/public/bookings faz isso, mas para vendas precisamos de um endpoint público ou usar o de admin se autenticado.
+    // Como o cliente não está logado como admin, precisamos de uma rota pública para vendas ou adaptar.
+    // Vamos criar uma rota pública simulada ou usar a lógica existente se houver.
+    // OLHO: O backend atual não tem rota pública para vendas. Vou precisar adicionar no server.js depois.
+    // Por enquanto, vou simular a chamada assumindo que criaremos a rota /api/public/sales
+    
+    const payload = {
+      name,
+      phone,
+      items: cart.map(item => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        unitPrice: item.price
+      }))
+    };
+    
+    // Chamada para a nova rota pública (que vamos criar no server.js)
+    await api("/api/public/sales", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    
+    alert("Compra realizada com sucesso! Entraremos em contato pelo WhatsApp.");
+    cart = [];
+    updateCartUI();
+    closeCartModal();
+    // Opcional: voltar para a lista de produtos
+    initComprasPage();
+  } catch (error) {
+    alert("Erro ao finalizar compra: " + error.message);
+  }
+});
+
+// Máscara para o telefone do checkout
+$("checkoutPhone")?.addEventListener("input", (e) => {
+  let v = e.target.value.replace(/\D/g, "");
+  if (v.length > 11) v = v.slice(0, 11);
+  let formatted = "";
+  if (v.length > 0) formatted += "(" + v.substring(0, 2);
+  if (v.length >= 2) formatted += ") ";
+  if (v.length > 2) formatted += v.substring(2, 3);
+  if (v.length > 3) formatted += " " + v.substring(3, 7);
+  if (v.length > 7) formatted += "-" + v.substring(7, 11);
+  e.target.value = formatted;
+});
+
+
+mountThemeUI();
+mountDarkContrastFix();
+boot();
