@@ -4827,26 +4827,6 @@ mountThemeUI();
   authScreen.appendChild(host);
 })();
 
-// Garantir botão de tema no login
-if ($("authScreen")) {
-  const host = document.createElement("div");
-  host.className = "theme-auth";
-  host.style.zIndex = "9999";
-  host.style.position = "absolute";
-  host.style.top = "20px";
-  host.style.right = "20px";
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "theme-toggle";
-  btn.textContent = document.documentElement.dataset.theme === "dark" ? "☀️ Tema claro" : "🌙 Tema escuro";
-  btn.onclick = () => {
-    const newTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-    applyTheme(newTheme, true);
-    btn.textContent = newTheme === "dark" ? "☀️ Tema claro" : "🌙 Tema escuro";
-  };
-  host.appendChild(btn);
-  // Usar appendChild para garantir que fique no final e visível
-  $("authScreen").appendChild(host);
-}
+// mountDarkContrastFix e boot já chamados acima - removido bloco duplicado de injeção de tema
 mountDarkContrastFix();
 boot();
