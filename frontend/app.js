@@ -3901,26 +3901,10 @@ msg += "\n*Total: " + money(cart.reduce((s, i) => s + i.price * i.quantity, 0)) 
 msg += "\nCliente: " + name;
 msg += "\nTelefone: " + phone;
 const waUrl = "https://wa.me/5585984773871?text=" + encodeURIComponent(msg);
-const formEl = $("checkoutForm");
-const itemsEl = $("cartItems");
-const totalEl = $("cartTotal").parentElement;
-if (formEl) formEl.style.display = "none";
-if (totalEl) totalEl.style.display = "none";
-if (itemsEl) {
-itemsEl.innerHTML =
-'<div style="text-align:center;padding:24px 10px">' +
-'<div style="font-size:52px;margin-bottom:12px">✅</div>' +
-'<h3 style="color:#267554;font-size:20px;margin-bottom:8px">Pedido Recebido!</h3>' +
-'<p style="color:#81747d;font-size:13px;margin-bottom:20px;line-height:1.6">Aguarde o contato dos nossos atendentes para confirmar seu pedido.</p>' +
-'<p style="color:#a08090;font-size:12px;margin-bottom:16px">Ou envie agora pelo WhatsApp:</p>' +
-'<a href="' + waUrl + '" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:15px;background:#25D366;color:white;border-radius:10px;font-size:15px;font-weight:700;text-decoration:none;margin-bottom:10px">' +
-'<span style="font-size:22px">💬</span> Enviar Pedido no WhatsApp' +
-'</a>' +
-'<button type="button" onclick="location.reload()" style="width:100%;padding:12px;background:#f6eef1;color:#784459;border:1px solid #ecdae2;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer">Voltar ao Inicio</button>' +
-'</div>';
-}
 cart = [];
 updateCartUI();
+closeCartModal();
+window.open(waUrl, '_blank');
 } catch (error) {
 alert("Erro ao finalizar compra: " + error.message);
 }
