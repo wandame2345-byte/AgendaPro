@@ -290,30 +290,34 @@
       ['salonStart', 'salonEnd', 'salonClientFilter', 'salonProductFilter', 'salonStatusFilter'].forEach(id => byId(id).value = '');
       renderHistory();
     };
-    // Botão Remover Canceladas - Verificação contínua até encontrar o local
-    const checkBtnInterval = setInterval(() => {
-      const filterHost = document.querySelector('#salonSales .salon-filters');
-      if (filterHost) {
-        clearInterval(checkBtnInterval); // Para de verificar quando achar
-        if (!document.getElementById('removeCancelledBtn')) {
-          const btnRm = document.createElement('button');
-          btnRm.id = 'removeCancelledBtn';
-          btnRm.type = 'button';
-          btnRm.className = 'btn danger btn-sm';
-          btnRm.textContent = '🗑️ Remover Canceladas';
-          btnRm.style.marginLeft = '8px';
-          btnRm.onclick = async () => {
-            if (!confirm('Remover permanentemente todas as vendas canceladas? Esta ação não pode ser desfeita.')) return;
-            try {
-              const res = await api('/api/sales/cancelled', { method: 'DELETE' });
-              alert(res.message || 'Vendas canceladas removidas com sucesso.');
-              await refreshData();
-            } catch (e) { alert('Erro: ' + e.message); }
-          };
-          filterHost.appendChild(btnRm);
-        }
+    // Botão Remover Canceladas - Injeção robusta via setInterval
+    const startBtnInjection = setInterval(() => {
+      if (document.getElementById('removeCancelledBtn')) {
+        clearInterval(startBtnInjection);
+        return;
       }
-    }, 500);
+      const clearBtn = document.getElementById('salonClearFilter');
+      if (clearBtn) {
+        clearInterval(startBtnInjection);
+        const btnRm = document.createElement('button');
+        btnRm.id = 'removeCancelledBtn';
+        btnRm.type = 'button';
+        btnRm.className = 'btn danger btn-sm';
+        btnRm.textContent = '🗑️ Remover Canceladas';
+        btnRm.style.marginLeft = '10px';
+        btnRm.onclick = async () => {
+          if (!confirm('⚠️ ATENÇÃO: Isso vai apagar PERMANENTEMENTE todas as vendas canceladas do histórico. Deseja continuar?')) return;
+          try {
+            const res = await api('/api/sales/cancelled', { method: 'DELETE' });
+            alert(res.message || 'Vendas canceladas removidas com sucesso!');
+            await refreshData();
+          } catch (e) {
+            alert('Erro ao remover: ' + e.message);
+          }
+        };
+        clearBtn.insertAdjacentElement('afterend', btnRm);
+      }
+    }, 800);
     byId('salonProductForm').onsubmit = saveProduct;
     byId('salonSaleForm').onsubmit = saveSale;
     byId('salonEditForm').onsubmit = saveEdit;
