@@ -290,14 +290,15 @@
       ['salonStart', 'salonEnd', 'salonClientFilter', 'salonProductFilter', 'salonStatusFilter'].forEach(id => byId(id).value = '');
       renderHistory();
     };
-    // Botão Remover Canceladas - Injeção robusta via setInterval
+    // Botão Remover Canceladas - Injeção robusta via setInterval (Procura pelo container de filtros)
     const startBtnInjection = setInterval(() => {
       if (document.getElementById('removeCancelledBtn')) {
         clearInterval(startBtnInjection);
         return;
       }
-      const clearBtn = document.getElementById('salonClearFilter');
-      if (clearBtn) {
+      // Tenta encontrar o container de filtros da aba Vendas Salão
+      const filtersContainer = document.querySelector('#salonSales .salon-filters');
+      if (filtersContainer) {
         clearInterval(startBtnInjection);
         const btnRm = document.createElement('button');
         btnRm.id = 'removeCancelledBtn';
@@ -315,9 +316,9 @@
             alert('Erro ao remover: ' + e.message);
           }
         };
-        clearBtn.insertAdjacentElement('afterend', btnRm);
+        filtersContainer.appendChild(btnRm);
       }
-    }, 800);
+    }, 500);
     byId('salonProductForm').onsubmit = saveProduct;
     byId('salonSaleForm').onsubmit = saveSale;
     byId('salonEditForm').onsubmit = saveEdit;
