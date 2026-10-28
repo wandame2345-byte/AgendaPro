@@ -3792,7 +3792,7 @@ container.innerHTML = '<div class="empty">Nenhum produto disponível no momento.
 return;
 }
 container.innerHTML = products.map(p => {
-const photoUrl = (p.photo && p.photo.trim() !== "") ? esc(p.photo.startsWith('/') ? p.photo : '/' + p.photo) : '';
+const photoUrl = (p.photo && p.photo.trim() !== "") ? esc(p.photo) : '';
 const photoHtml = photoUrl
 ? `<div style="position:relative;width:100%;height:220px;margin-bottom:15px;cursor:pointer;" onclick="openPhotoViewer('${photoUrl}')"><img src="${photoUrl}" alt="${esc(p.name)}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;" onerror="this.style.display='none';this.parentElement.querySelector('.fallback').style.display='flex';"><div class="fallback" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;background:#f0f0f0;border-radius:10px;align-items:center;justify-content:center;color:#999;font-size:12px;">Foto indisponível</div></div>`
 : `<div style="height:220px;background:#f0f0f0;border-radius:10px;margin-bottom:15px;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px;">Sem foto</div>`;
