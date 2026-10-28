@@ -1252,9 +1252,22 @@ app.patch(
           fail('Situação do produto inválida.');
         }
       }
-      const photo = req.file
-        ? `/uploads/${req.file.filename}`
-        : previous.foto_url;
+      let photo = previous.foto_url;
+      if (req.file) {
+        if (req.file.buffer) {
+          photo = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+        } else if (req.file.path) {
+          try {
+            const fs = await import('fs');
+            const fileData = fs.readFileSync(req.file.path);
+            photo = `data:${req.file.mimetype};base64,${fileData.toString('base64')}`;
+            fs.unlinkSync(req.file.path);
+          } catch (e) {
+            console.error('Erro ao converter foto do produto para base64:', e);
+            photo = `/uploads/${req.file.filename}`;
+          }
+        }
+      }
       const result = await db.query(`
         UPDATE produtos
         SET nome = $1,
